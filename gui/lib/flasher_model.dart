@@ -53,6 +53,10 @@ class FlasherModel extends ChangeNotifier {
   Timer? _poll;
 
   bool get busy => phase == Phase.flashing || phase == Phase.loadingImage;
+
+  /// Partitions that actually have something to write.
+  int get flashableCount =>
+      partitions.where((p) => p.downloadFile != null).length;
   bool get canFlash =>
       _tool != null &&
       imagePath != null &&

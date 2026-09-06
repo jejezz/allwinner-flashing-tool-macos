@@ -10,7 +10,9 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-app="$root/gui/build/macos/Build/Products/Release/aw_flasher.app"
+# Matches PRODUCT_NAME in gui/macos/Runner/Configs/AppInfo.xcconfig — the space
+# is why every path below is quoted.
+app="$root/gui/build/macos/Build/Products/Release/Allwinner Flasher.app"
 
 echo "==> aw-tool (vendored libusb)"
 cargo build --manifest-path "$root/Cargo.toml" --release --features vendored

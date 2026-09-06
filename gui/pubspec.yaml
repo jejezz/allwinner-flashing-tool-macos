@@ -58,6 +58,19 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Shared with the Saturn client so the tools look like one family.
+  fonts:
+    - family: SeoulNamsan
+      fonts:
+        - asset: assets/fonts/seoul_namsan_light.ttf
+          weight: 300
+        - asset: assets/fonts/seoul_namsan_regular.ttf
+          weight: 400
+        - asset: assets/fonts/seoul_namsan_bold.ttf
+          weight: 700
+        - asset: assets/fonts/seoul_namsan_extra_bold.ttf
+          weight: 800
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

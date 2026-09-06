@@ -1,12 +1,17 @@
 # aw-tool
 
-Allwinner T507/T527 보드를 **macOS에서** 플래싱하는 CLI. 벤더 도구인 PhoenixSuit이 Windows 전용이라, FEL/EFEX USB 프로토콜을 직접 구현해 대체한다.
+Allwinner T507/T527 보드를 **macOS에서** 플래싱하는 도구. 벤더 도구인 PhoenixSuit이 Windows 전용이라, FEL/EFEX USB 프로토콜을 직접 구현해 대체한다.
 
-FEL 모드에 들어간 보드에 명령 하나를 실행하면 부트스트랩부터 전체 퓨징, 재부팅까지 끝난다.
+CLI와 GUI 두 가지로 쓸 수 있다. FEL 모드에 들어간 보드에 명령 하나를 실행하면 부트스트랩부터 전체 퓨징, 재부팅까지 끝난다.
 
 ```bash
 aw-tool flash-all firmware.img sys_partition.fex --reboot
 ```
+
+| | |
+|---|---|
+| `aw-tool` (Rust) | CLI. 프로토콜 구현 전체가 여기 있다 |
+| `gui/` (Flutter) | macOS 앱. CLI를 서브프로세스로 실행하고 진행률을 표시한다 |
 
 ## 상태
 
@@ -22,7 +27,8 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 
 - macOS (Apple Silicon에서 확인)
 - Rust 툴체인 (1.98로 빌드 확인)
-- libusb — `brew install libusb`
+- libusb — `brew install libusb` (배포용 빌드에는 불필요, 아래 참조)
+- GUI를 빌드할 경우 Flutter (3.47.1로 확인)
 
 USB 접근에 `sudo`는 필요 없다.
 
@@ -128,6 +134,27 @@ bootstrap: EFEX mode reached
 
 > `flash-*` 명령은 장치 내용을 지운다. 되돌릴 수 없다.
 
+## GUI
+
+`gui/`의 Flutter macOS 앱. 이미지를 고르면 파티션 목록을 미리 보여주고, 보드 연결을 감지해 플래싱 버튼을 활성화하며, 진행률과 로그를 표시한다.
+
+```bash
+./scripts/build-app.sh
+# 산출물: gui/build/macos/Build/Products/Release/aw_flasher.app (약 40 MB)
+```
+
+이 스크립트가 하는 일: `--features vendored`로 helper 빌드 → Homebrew 링크가 남았는지 검사 → Flutter 릴리즈 빌드 → helper를 `Contents/Resources/`에 복사 → 재서명. 번들에 파일을 넣으면 Flutter가 만든 서명이 깨지고 macOS가 실행을 거부하므로 재서명이 필요하다.
+
+개발 중에는 앱이 저장소의 `target/release/aw-tool`을 자동으로 찾으므로 그냥 실행하면 된다.
+
+```bash
+cargo build --release && cd gui && flutter run -d macos
+```
+
+**App Sandbox를 끈 상태다** (`macos/Runner/*.entitlements`). 사내 도구 전제이며, 샌드박스 안에서는 USB 접근에 `com.apple.security.device.usb` 엔타이틀먼트가 필요하고 번들된 helper도 샌드박스를 상속한다. 이 때문에 `file_picker`의 사전 검사도 통과하지 못해 `FilePicker.skipEntitlementsChecks()`를 호출한다. App Store 배포로 방향을 바꾸려면 이 세 가지를 함께 되돌려야 한다.
+
+GUI는 CLI를 **서브프로세스로** 실행한다. FFI로 링크하지 않는 이유는 USB 전송이 실제로 멈출 수 있기 때문이다 — 잘못된 명령이 보드를 `INVALID direction` 상태로 만들고 전송이 타임아웃까지 걸린 적이 있다. 별도 프로세스면 그 hang은 kill로 끝나고, 취소도 프로세스 종료로 처리된다. 검증이 끝난 플래싱 경로를 GUI 작업이 건드리지 않는 이점도 있다.
+
 ## GUI 연동 (`--json`)
 
 모든 명령에 `--json`을 붙이면 산문 대신 **줄 단위 JSON**을 stdout으로 냅니다. 한 줄에 객체 하나, 각 객체에 `event` 키가 있습니다. GUI가 이 툴을 서브프로세스로 띄우고 stdout을 파싱하는 것을 전제로 한 출력입니다.
@@ -208,3 +235,6 @@ EFEX
 | `src/sparse.rs` | Android sparse 이미지 파서 |
 | `src/sys_partition.rs` | `sys_partition.fex` 파서 + 오프셋 계산 |
 | `src/event.rs` | 진행 리포터 (산문 / NDJSON 양쪽) |
+| `gui/lib/aw_tool.dart` | CLI 실행 + JSON 이벤트 파싱 |
+| `gui/lib/flasher_model.dart` | 장치 폴링, 이미지 로딩, 플래싱 상태 |
+| `gui/lib/main.dart` | UI |

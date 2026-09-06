@@ -15,6 +15,8 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 
 ## 상태
 
+**CLI**
+
 | 항목 | 상태 |
 |---|---|
 | T527 (sun55iw3 / A523) 전체 플래싱 → Android 정상 부팅 | 실기 검증 완료 |
@@ -22,6 +24,20 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 | 소요 시간 | 약 1분 40초 (부트스트랩 + 약 1.1 GB 기록 + 재부팅) |
 | T507 | **미검증** — 아래 "T507로 옮길 때" 참조 |
 | 저장 매체 | eMMC/SD(`storage type = 2`)에서 검증. NAND 미검증 |
+| `--json` 이벤트 · `probe` · 종료 코드 | 오프라인 명령으로 검증 (`gui/test/aw_tool_integration_test.dart`가 실제 바이너리를 구동) |
+
+**GUI**
+
+| 항목 | 상태 |
+|---|---|
+| 빌드 · 실행 · 번들된 helper 사용 | 확인 (릴리즈 `.app`, Homebrew 링크 0) |
+| 화면 렌더링 (대기 상태) | 확인 |
+| 이미지 선택 → 파티션 목록 표시 | **실기 미검증** |
+| 장치 감지 (FEL / EFEX 판별) | **실기 미검증** — 보드 없이는 `none`만 확인 가능 |
+| 플래싱 진행률 · 완료 · 실패 화면 | **실기 미검증** — 해당 상태에 진입하려면 보드가 필요 |
+| 중단 버튼 | **실기 미검증** |
+
+GUI의 미검증 항목은 모두 보드가 있어야 도달하는 화면이다. 그 아래의 CLI 경로는 검증이 끝나 있고, GUI가 CLI에 넣은 변경은 진행률 콜백 인자 추가뿐이다 — `fes_down` 시퀀스, 청크 크기, 스파스 확장 로직은 그대로다.
 
 ## 요구 사항
 

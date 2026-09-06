@@ -426,13 +426,27 @@ impl EfexDevice {
     /// path. Chunked per FLASH_CHUNK_BYTES; each chunk is its own complete
     /// fes_down (announce+data+flush), sector offset advancing by
     /// chunk_len/512 each time.
-    pub fn write_partition(&mut self, start_sector: u64, data: &[u8]) -> Result<()> {
-        self.write_at_sector(start_sector, data)
+    /// `on_progress` is called with each chunk's byte count as it lands, so a
+    /// caller can report byte-level progress: `super` alone is ~1 GB, and
+    /// partition-level reporting would leave a progress bar frozen on one step
+    /// for over a minute.
+    pub fn write_partition(
+        &mut self,
+        start_sector: u64,
+        data: &[u8],
+        on_progress: &mut dyn FnMut(usize),
+    ) -> Result<()> {
+        self.write_at_sector(start_sector, data, on_progress)
     }
 
     /// Write `data` starting at an absolute sector, split into
     /// FLASH_CHUNK_BYTES pieces (each its own complete fes_down).
-    fn write_at_sector(&mut self, start_sector: u64, data: &[u8]) -> Result<()> {
+    fn write_at_sector(
+        &mut self,
+        start_sector: u64,
+        data: &[u8],
+        on_progress: &mut dyn FnMut(usize),
+    ) -> Result<()> {
         use crate::sys_partition::SECTOR_SIZE;
 
         for (i, chunk) in data.chunks(Self::FLASH_CHUNK_BYTES).enumerate() {
@@ -442,6 +456,7 @@ impl EfexDevice {
                 .map_err(|_| anyhow!("sector {sector} does not fit in u32"))?;
             self.fes_down(addr, 0, chunk)
                 .with_context(|| format!("writing chunk {i} at sector 0x{sector:x}"))?;
+            on_progress(chunk.len());
         }
         Ok(())
     }
@@ -460,6 +475,7 @@ impl EfexDevice {
         &mut self,
         start_sector: u64,
         img: &crate::sparse::SparseImage<'_>,
+        on_progress: &mut dyn FnMut(usize),
     ) -> Result<()> {
         use crate::sparse::Segment;
         use crate::sys_partition::SECTOR_SIZE;
@@ -468,7 +484,7 @@ impl EfexDevice {
             match seg {
                 Segment::Raw { out_offset, data } => {
                     let sector = start_sector + out_offset / SECTOR_SIZE;
-                    self.write_at_sector(sector, data).with_context(|| {
+                    self.write_at_sector(sector, data, on_progress).with_context(|| {
                         format!("sparse segment {i}: raw at partition offset {out_offset}")
                     })?;
                 }
@@ -485,7 +501,7 @@ impl EfexDevice {
                         .copied()
                         .collect();
                     let sector = start_sector + out_offset / SECTOR_SIZE;
-                    self.write_at_sector(sector, &pattern).with_context(|| {
+                    self.write_at_sector(sector, &pattern, on_progress).with_context(|| {
                         format!("sparse segment {i}: fill at partition offset {out_offset}")
                     })?;
                 }

@@ -1,5 +1,6 @@
 mod bootstrap;
 mod efex;
+mod event;
 mod fel;
 mod imagewty;
 mod sparse;
@@ -8,11 +9,18 @@ mod sys_partition;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use event::Reporter;
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "aw-tool", about = "Allwinner T507/T527 FEL/EFEX flashing helper")]
 struct Cli {
+    /// Emit newline-delimited JSON events on stdout instead of prose, one
+    /// object per line, each tagged with an `event` key. Intended for a GUI
+    /// front-end driving this tool as a subprocess.
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -40,6 +48,12 @@ enum Command {
         #[arg(short, long, default_value = "usb-product")]
         mode: String,
     },
+
+    /// Report what is connected right now — `fel`, `efex`, or `none` — in one
+    /// shot, without touching storage. Safe to call repeatedly; a front-end
+    /// polls this to know when a board has been plugged in and which mode it
+    /// came up in. Exit status is 0 even when nothing is connected.
+    Probe,
 
     /// Query FEL version from a connected device (VID:PID 1f3a:efe8).
     FelVersion,
@@ -134,14 +148,27 @@ enum Command {
     },
 }
 
+/// Which path `write_partition_auto` took, for reporting.
+struct WriteOutcome {
+    /// Stable machine-readable tag: "raw" or "sparse".
+    format: &'static str,
+    /// Prose for a human ("raw", or the sparse expansion summary).
+    detail: String,
+}
+
 /// Write a partition payload, expanding it first if it is an Android sparse
-/// image (`super.fex` is one). Returns a short description of which path was
-/// taken, for the progress line.
+/// image (`super.fex` is one).
+///
+/// Progress is reported per 64 KB chunk against the number of bytes actually
+/// sent, which for a sparse image is the payload size — not the file size and
+/// not the expanded size, since DONT_CARE regions are skipped entirely.
 fn write_partition_auto(
     dev: &mut efex::EfexDevice,
     start_sector: u64,
     data: &[u8],
-) -> Result<String> {
+    name: &str,
+    rep: &Reporter,
+) -> Result<WriteOutcome> {
     if sparse::is_sparse(data) {
         let img = sparse::parse(data)?;
         let payload: u64 = img
@@ -152,15 +179,32 @@ fn write_partition_auto(
                 sparse::Segment::Fill { len, .. } => *len,
             })
             .sum();
-        dev.write_partition_sparse(start_sector, &img)?;
-        Ok(format!(
-            "sparse -> {} MB expanded, {} MB written",
-            img.expanded_len / (1024 * 1024),
-            payload / (1024 * 1024)
-        ))
+        let mut written = 0u64;
+        dev.write_partition_sparse(start_sector, &img, &mut |n| {
+            written += n as u64;
+            rep.progress(name, written, payload);
+        })?;
+        rep.progress_done(name, payload);
+        Ok(WriteOutcome {
+            format: "sparse",
+            detail: format!(
+                "sparse -> {} MB expanded, {} MB written",
+                img.expanded_len / (1024 * 1024),
+                payload / (1024 * 1024)
+            ),
+        })
     } else {
-        dev.write_partition(start_sector, data)?;
-        Ok("raw".to_string())
+        let total = data.len() as u64;
+        let mut written = 0u64;
+        dev.write_partition(start_sector, data, &mut |n| {
+            written += n as u64;
+            rep.progress(name, written, total);
+        })?;
+        rep.progress_done(name, total);
+        Ok(WriteOutcome {
+            format: "raw",
+            detail: "raw".to_string(),
+        })
     }
 }
 
@@ -183,18 +227,52 @@ fn parse_work_mode(s: &str) -> Result<u32> {
     })
 }
 
-fn main() -> Result<()> {
+fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
+    let rep = Reporter::new(cli.json);
+    match run(cli.command, &rep) {
+        Ok(()) => {
+            rep.done();
+            std::process::ExitCode::SUCCESS
+        }
+        Err(e) => {
+            // Reported as a terminating event rather than propagated, so a
+            // front-end reading the JSON stream always sees a final `error`
+            // object instead of having to also parse stderr.
+            rep.fail(&e);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
 
-    match cli.command {
+fn run(command: Command, rep: &Reporter) -> Result<()> {
+    match command {
         Command::List { image } => {
             let img = imagewty::ImageWty::open(&image)?;
-            println!("{} items:", img.items.len());
-            for it in &img.items {
-                println!(
-                    "  {:8} {:18} {:30} offset={:<10} stored={:<10} original={}",
-                    it.maintype, it.subtype, it.filename, it.file_offset, it.stored_length, it.original_length
-                );
+            if rep.json_mode() {
+                let items: Vec<_> = img
+                    .items
+                    .iter()
+                    .map(|it| {
+                        serde_json::json!({
+                            "maintype": it.maintype,
+                            "subtype": it.subtype,
+                            "filename": it.filename,
+                            "file_offset": it.file_offset,
+                            "stored_length": it.stored_length,
+                            "original_length": it.original_length,
+                        })
+                    })
+                    .collect();
+                rep.data("items", serde_json::json!({ "items": items }));
+            } else {
+                println!("{} items:", img.items.len());
+                for it in &img.items {
+                    println!(
+                        "  {:8} {:18} {:30} offset={:<10} stored={:<10} original={}",
+                        it.maintype, it.subtype, it.filename, it.file_offset, it.stored_length, it.original_length
+                    );
+                }
             }
         }
 
@@ -205,7 +283,7 @@ fn main() -> Result<()> {
                 .with_context(|| format!("item '{item}' not found in {:?}", image))?;
             let data = img.read_item(found)?;
             std::fs::write(&out, &data).with_context(|| format!("writing {:?}", out))?;
-            println!("extracted {} bytes -> {:?}", data.len(), out);
+            rep.log(format!("extracted {} bytes -> {:?}", data.len(), out));
         }
 
         Command::PatchWorkmode { input, out, mode } => {
@@ -219,66 +297,163 @@ fn main() -> Result<()> {
             let after_sum = sunxi_head::fix_checksum(&mut buf)?;
 
             std::fs::write(&out, &buf).with_context(|| format!("writing {:?}", out))?;
-            println!(
+            rep.log(format!(
                 "work_mode: 0x{before:02x} -> 0x{mode_val:02x}\ncheck_sum: 0x{before_sum:08x} -> 0x{after_sum:08x}\nwrote {:?}",
                 out
-            );
+            ));
+        }
+
+        Command::Probe => {
+            // Deliberately never an error: "nothing connected" is a normal
+            // state for a front-end that polls while waiting for the user to
+            // plug a board in.
+            if bootstrap::in_efex_mode() {
+                let mut dev = efex::EfexDevice::open()?;
+                let info = dev.verify_dev()?;
+                if rep.json_mode() {
+                    rep.data(
+                        "probe",
+                        serde_json::json!({
+                            "state": "efex",
+                            "mode": info.mode,
+                            "platform_id_hw": info.platform_id_hw,
+                            "platform_id_fw": info.platform_id_fw,
+                        }),
+                    );
+                } else {
+                    println!("efex (mode=0x{:02x})", info.mode);
+                }
+            } else if let Ok(dev) = fel::FelDevice::open() {
+                let ver = dev.get_version()?;
+                if rep.json_mode() {
+                    rep.data(
+                        "probe",
+                        serde_json::json!({
+                            "state": "fel",
+                            "soc_id": ver.soc_id,
+                            "protocol": ver.protocol,
+                        }),
+                    );
+                } else {
+                    println!("fel (soc_id=0x{:04x})", ver.soc_id);
+                }
+            } else if rep.json_mode() {
+                rep.data("probe", serde_json::json!({ "state": "none" }));
+            } else {
+                println!("none");
+            }
         }
 
         Command::FelVersion => {
             let dev = fel::FelDevice::open()?;
             let ver = dev.get_version()?;
-            println!(
-                "signature={:?} soc_id=0x{:04x} protocol=0x{:04x} scratchpad=0x{:x}",
-                String::from_utf8_lossy(&ver.signature),
-                ver.soc_id,
-                ver.protocol,
-                ver.scratchpad
-            );
+            if rep.json_mode() {
+                rep.data(
+                    "fel_version",
+                    serde_json::json!({
+                        "signature": String::from_utf8_lossy(&ver.signature),
+                        "soc_id": ver.soc_id,
+                        "protocol": ver.protocol,
+                        "scratchpad": ver.scratchpad,
+                    }),
+                );
+            } else {
+                println!(
+                    "signature={:?} soc_id=0x{:04x} protocol=0x{:04x} scratchpad=0x{:x}",
+                    String::from_utf8_lossy(&ver.signature),
+                    ver.soc_id,
+                    ver.protocol,
+                    ver.scratchpad
+                );
+            }
         }
 
         Command::EfexVerifyDev => {
             let mut dev = efex::EfexDevice::open()?;
             let info = dev.verify_dev()?;
-            println!(
-                "tag={:?} platform_id_hw=0x{:08x} platform_id_fw=0x{:08x} mode=0x{:02x}",
-                String::from_utf8_lossy(&info.tag),
-                info.platform_id_hw,
-                info.platform_id_fw,
-                info.mode
-            );
+            if rep.json_mode() {
+                rep.data(
+                    "verify_dev",
+                    serde_json::json!({
+                        "tag": String::from_utf8_lossy(&info.tag),
+                        "platform_id_hw": info.platform_id_hw,
+                        "platform_id_fw": info.platform_id_fw,
+                        "mode": info.mode,
+                    }),
+                );
+            } else {
+                println!(
+                    "tag={:?} platform_id_hw=0x{:08x} platform_id_fw=0x{:08x} mode=0x{:02x}",
+                    String::from_utf8_lossy(&info.tag),
+                    info.platform_id_hw,
+                    info.platform_id_fw,
+                    info.mode
+                );
+            }
         }
 
         Command::EfexQueryStorage => {
             let mut dev = efex::EfexDevice::open()?;
             let storage_type = dev.query_storage()?;
-            println!("storage_type = {}", storage_type);
+            if rep.json_mode() {
+                rep.data(
+                    "storage",
+                    serde_json::json!({ "storage_type": storage_type }),
+                );
+            } else {
+                println!("storage_type = {}", storage_type);
+            }
         }
 
         Command::ListPartitions { sys_partition_fex } => {
             let text = std::fs::read_to_string(&sys_partition_fex)
                 .with_context(|| format!("reading {:?}", sys_partition_fex))?;
             let sp = sys_partition::SysPartition::parse(&text)?;
-            println!(
-                "mbr_size_sectors=0x{:x} ({} bytes)",
-                sp.mbr_size_sectors,
-                sp.mbr_size_sectors * sys_partition::SECTOR_SIZE
-            );
-            for p in &sp.partitions {
-                let size_str = match p.size_sectors {
-                    Some(s) => format!("0x{:x}", s),
-                    None => "(fills remainder)".to_string(),
-                };
-                println!(
-                    "  {:20} start=0x{:<10x} size={:<14} downloadfile={:<20} user_type={} keydata={} ro={}",
-                    p.name,
-                    p.start_sector,
-                    size_str,
-                    p.downloadfile.as_deref().unwrap_or("-"),
-                    p.user_type,
-                    p.keydata,
-                    p.ro
+            if rep.json_mode() {
+                let parts: Vec<_> = sp
+                    .partitions
+                    .iter()
+                    .map(|p| {
+                        serde_json::json!({
+                            "name": p.name,
+                            "start_sector": p.start_sector,
+                            "size_sectors": p.size_sectors,
+                            "downloadfile": p.downloadfile,
+                            "user_type": p.user_type,
+                            "keydata": p.keydata,
+                            "ro": p.ro,
+                        })
+                    })
+                    .collect();
+                rep.data(
+                    "partitions",
+                    serde_json::json!({
+                        "mbr_size_sectors": sp.mbr_size_sectors,
+                        "partitions": parts,
+                    }),
                 );
+            } else {
+                println!(
+                    "mbr_size_sectors=0x{:x} ({} bytes)",
+                    sp.mbr_size_sectors,
+                    sp.mbr_size_sectors * sys_partition::SECTOR_SIZE
+                );
+                for p in &sp.partitions {
+                    let size_str = match p.size_sectors {
+                        Some(s) => format!("0x{:x}", s),
+                        None => "(fills remainder)".to_string(),
+                    };
+                    println!(
+                        "  {:20} start=0x{:<10x} size={:<14} downloadfile={:<20} user_type={} keydata={} ro={}",
+                        p.name,
+                        p.start_sector,
+                        size_str,
+                        p.downloadfile.as_deref().unwrap_or("-"),
+                        p.user_type,
+                        p.keydata,
+                        p.ro
+                    );
+                }
             }
         }
 
@@ -291,7 +466,7 @@ fn main() -> Result<()> {
             let mut dev = efex::EfexDevice::open()?;
             dev.flash_set_on()?;
             dev.write_mbr(&data)?;
-            println!("wrote MBR ({} bytes) from sunxi_mbr.fex", data.len());
+            rep.step("mbr", format!("wrote MBR ({} bytes) from sunxi_mbr.fex", data.len()));
         }
 
         Command::FlashBoot1 { image } => {
@@ -303,7 +478,10 @@ fn main() -> Result<()> {
             let mut dev = efex::EfexDevice::open()?;
             dev.flash_set_on()?;
             dev.write_boot1(&data)?;
-            println!("wrote BOOT1 ({} bytes) from boot_package.fex", data.len());
+            rep.step(
+                "boot1",
+                format!("wrote BOOT1 ({} bytes) from boot_package.fex", data.len()),
+            );
         }
 
         Command::FlashBoot0 { image, item } => {
@@ -315,7 +493,7 @@ fn main() -> Result<()> {
             let mut dev = efex::EfexDevice::open()?;
             dev.flash_set_on()?;
             dev.write_boot0(&data)?;
-            println!("wrote BOOT0 ({} bytes) from {item}", data.len());
+            rep.step("boot0", format!("wrote BOOT0 ({} bytes) from {item}", data.len()));
         }
 
         Command::FlashPartition {
@@ -344,17 +522,26 @@ fn main() -> Result<()> {
             let mut dev = efex::EfexDevice::open()?;
             dev.flash_set_on()?;
             let start = std::time::Instant::now();
-            let kind = write_partition_auto(&mut dev, part.start_sector, &data)?;
-            println!("write path: {kind}");
+            rep.partition_begin(1, 1, &name, data.len() as u64);
+            let outcome = write_partition_auto(&mut dev, part.start_sector, &data, &name, rep)?;
             let elapsed = start.elapsed();
             let mb = data.len() as f64 / (1024.0 * 1024.0);
-            println!(
-                "wrote partition '{name}' ({} bytes from {filename}) at sector 0x{:x} in {:.1}s ({:.2} MB/s)",
+            rep.partition_end(
+                1,
+                1,
+                &name,
+                data.len() as u64,
+                outcome.format,
+                elapsed.as_secs_f64(),
+            );
+            rep.prose(format!(
+                "wrote partition '{name}' ({} bytes from {filename}, {}) at sector 0x{:x} in {:.1}s ({:.2} MB/s)",
                 data.len(),
+                outcome.detail,
                 part.start_sector,
                 elapsed.as_secs_f64(),
                 mb / elapsed.as_secs_f64()
-            );
+            ));
         }
 
         Command::Bootstrap {
@@ -367,6 +554,7 @@ fn main() -> Result<()> {
                 &img,
                 parse_hex_addr(&fes1_addr)?,
                 parse_hex_addr(&uboot_addr)?,
+                rep,
             )?;
         }
 
@@ -374,7 +562,7 @@ fn main() -> Result<()> {
             let mut dev = efex::EfexDevice::open()?;
             dev.flash_set_on()?;
             dev.set_erase_flag(flag)?;
-            println!("erase flag set to {flag}");
+            rep.step("erase_flag", format!("erase flag set to {flag}"));
         }
 
         Command::FlashAll {
@@ -414,10 +602,10 @@ fn main() -> Result<()> {
                     .find(filename)
                     .with_context(|| format!("{filename} (for partition '{}') not found in image", p.name))?;
                 if skip_larger_than > 0 && item.original_length as u64 > skip_larger_than {
-                    println!(
+                    rep.log(format!(
                         "skipping '{}' ({filename}, {} bytes > limit)",
                         p.name, item.original_length
-                    );
+                    ));
                     continue;
                 }
                 let data = img.read_item(item)?;
@@ -429,60 +617,71 @@ fn main() -> Result<()> {
             }
 
             let total_bytes: u64 = jobs.iter().map(|j| j.data.len() as u64).sum();
-            println!(
-                "plan: MBR({} B) + {} partitions ({} MB total) + BOOT1({} B) + BOOT0({} B)",
-                mbr_data.len(),
+            rep.plan(
                 jobs.len(),
-                total_bytes / (1024 * 1024),
+                total_bytes,
+                mbr_data.len(),
                 boot1_data.len(),
-                boot0_data.len()
+                boot0_data.len(),
             );
 
             if !no_bootstrap {
-                bootstrap::fel_to_efex(&img, bootstrap::FES1_ADDR, bootstrap::UBOOT_ADDR)?;
+                bootstrap::fel_to_efex(&img, bootstrap::FES1_ADDR, bootstrap::UBOOT_ADDR, rep)?;
             }
 
             let mut dev = efex::EfexDevice::open()?;
             dev.flash_set_on()?;
-            println!("[1] flash_set_on OK");
+            rep.step("flash_set_on", "[1] flash_set_on OK");
 
             dev.set_erase_flag(erase_flag)?;
-            println!("[2] erase_flag={erase_flag} OK");
+            rep.step("erase_flag", format!("[2] erase_flag={erase_flag} OK"));
 
             dev.write_mbr(&mbr_data)?;
-            println!("[3] MBR OK");
+            rep.step("mbr", "[3] MBR OK");
 
             for (i, job) in jobs.iter().enumerate() {
-                let kind = write_partition_auto(&mut dev, job.start_sector, &job.data)
-                    .with_context(|| {
-                        format!(
-                            "writing partition '{}' at sector 0x{:x}",
-                            job.name, job.start_sector
-                        )
-                    })?;
-                println!(
-                    "[4.{}/{}] partition '{}' OK ({} bytes, {kind})",
-                    i + 1,
+                let index = i + 1;
+                let bytes = job.data.len() as u64;
+                rep.partition_begin(index, jobs.len(), &job.name, bytes);
+                let started = std::time::Instant::now();
+                let outcome =
+                    write_partition_auto(&mut dev, job.start_sector, &job.data, &job.name, rep)
+                        .with_context(|| {
+                            format!(
+                                "writing partition '{}' at sector 0x{:x}",
+                                job.name, job.start_sector
+                            )
+                        })?;
+                rep.partition_end(
+                    index,
+                    jobs.len(),
+                    &job.name,
+                    bytes,
+                    outcome.format,
+                    started.elapsed().as_secs_f64(),
+                );
+                rep.prose(format!(
+                    "[4.{index}/{}] partition '{}' OK ({bytes} bytes, {})",
                     jobs.len(),
                     job.name,
-                    job.data.len()
-                );
+                    outcome.detail
+                ));
             }
 
             dev.write_boot1(&boot1_data)?;
-            println!("[5] BOOT1 OK");
+            rep.step("boot1", "[5] BOOT1 OK");
 
             dev.write_boot0(&boot0_data)?;
-            println!("[6] BOOT0 OK");
+            rep.step("boot0", "[6] BOOT0 OK");
 
             dev.flash_set_off()?;
-            println!("[7] flash_set_off OK");
+            rep.step("flash_set_off", "[7] flash_set_off OK");
 
             if reboot {
                 dev.trigger_reboot()?;
-                println!("[8] reboot triggered");
+                rep.step("reboot", "[8] reboot triggered");
             } else {
-                println!("[8] reboot skipped (--reboot=false)");
+                rep.step("reboot_skipped", "[8] reboot skipped (--reboot not given)");
             }
         }
     }

@@ -33,6 +33,14 @@ cargo build --release
 # 산출물: target/release/aw-tool
 ```
 
+다른 맥으로 배포할 바이너리(예: GUI `.app` 번들에 동봉)는 libusb를 정적 링크해야 합니다. 기본 빌드는 Homebrew의 `libusb-1.0.0.dylib`을 동적 링크하므로 libusb가 없는 머신에서 실행되지 않습니다.
+
+```bash
+cargo build --release --features vendored
+```
+
+`vendored`는 libusb를 소스에서 함께 빌드합니다. 결과 바이너리는 macOS 시스템 프레임워크(CoreFoundation, IOKit, Security, libSystem, libiconv)만 링크합니다.
+
 ## 사용법
 
 ### 1. 보드를 FEL 모드로
@@ -101,9 +109,12 @@ bootstrap: EFEX mode reached
 
 | 명령 | 설명 |
 |---|---|
+| `probe` | 지금 연결된 것이 `fel` / `efex` / `none` 중 무엇인지 한 번에 보고 |
 | `fel-version` | FEL 모드인지, 어떤 SoC인지 |
 | `efex-verify-dev` | EFEX 모드인지 |
 | `efex-query-storage` | 부팅한 저장 매체 종류 (BOOT0 변종 선택에 사용) |
+
+`probe`는 장치가 없어도 종료 코드 0으로 `none`을 보고합니다. 연결 대기 중 폴링하는 용도라 "없음"이 정상 상태이기 때문입니다.
 
 **플래싱 (파괴적)**
 
@@ -116,6 +127,32 @@ bootstrap: EFEX mode reached
 | `flash-set-erase-flag` | erase 플래그 설정 |
 
 > `flash-*` 명령은 장치 내용을 지운다. 되돌릴 수 없다.
+
+## GUI 연동 (`--json`)
+
+모든 명령에 `--json`을 붙이면 산문 대신 **줄 단위 JSON**을 stdout으로 냅니다. 한 줄에 객체 하나, 각 객체에 `event` 키가 있습니다. GUI가 이 툴을 서브프로세스로 띄우고 stdout을 파싱하는 것을 전제로 한 출력입니다.
+
+```
+{"event":"step","step":"fel_found","message":"bootstrap: FEL device found (soc_id=0x1890)"}
+{"event":"plan","partitions":12,"total_bytes":1150000000,"mbr_bytes":16384,...}
+{"event":"partition_begin","index":6,"total":12,"name":"super","bytes":1021182504}
+{"event":"progress","name":"super","written":104857600,"total":1024458752}
+{"event":"partition_end","index":6,"total":12,"name":"super","format":"sparse","seconds":74.3}
+{"event":"done"}
+```
+
+| 이벤트 | 용도 |
+|---|---|
+| `plan` | 진행바 전체 크기를 미리 잡을 수 있게 총 바이트 수를 먼저 알림 |
+| `step` | 이름 붙은 단계 경계 (`fel_found`, `mbr`, `boot0`, `reboot` 등) |
+| `partition_begin` / `partition_end` | 파티션 단위 경계 |
+| `progress` | 파티션 **내부** 바이트 진행률 (100 ms 간격으로 스로틀) |
+| `done` / `error` | 종료. `error`는 anyhow 컨텍스트 체인을 `causes` 배열로 함께 제공 |
+| `probe`, `items`, `partitions` 등 | 조회 명령의 구조화된 결과 |
+
+`progress`가 파티션 내부까지 내려가는 이유는 `super` 때문입니다. 약 1 GB를 64 KB 청크로 쓰기 때문에, 파티션 단위 이벤트만 있으면 전체 1분 40초 중 **1분 넘게 진행바가 한 칸에 멈춰** 있어 멈춘 것처럼 보입니다.
+
+실패는 예외로 전파되지 않고 항상 마지막 줄의 `error` 이벤트로 나옵니다(종료 코드는 1). 프론트엔드가 stderr를 따로 파싱할 필요가 없습니다.
 
 ## 동작 방식
 
@@ -170,3 +207,4 @@ EFEX
 | `src/bootstrap.rs` | FEL→EFEX 자동 진입 |
 | `src/sparse.rs` | Android sparse 이미지 파서 |
 | `src/sys_partition.rs` | `sys_partition.fex` 파서 + 오프셋 계산 |
+| `src/event.rs` | 진행 리포터 (산문 / NDJSON 양쪽) |

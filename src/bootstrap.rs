@@ -25,6 +25,7 @@ use anyhow::{bail, Context, Result};
 use std::time::{Duration, Instant};
 
 use crate::efex::{EfexDevice, MODE_SRV};
+use crate::event::Reporter;
 use crate::fel::FelDevice;
 use crate::imagewty::ImageWty;
 use crate::sunxi_head;
@@ -49,9 +50,14 @@ pub fn in_efex_mode() -> bool {
 
 /// Take a board from FEL to EFEX, staging both primers out of `image`.
 /// Returns without doing anything if the device is already in EFEX.
-pub fn fel_to_efex(image: &ImageWty, fes1_addr: u32, uboot_addr: u32) -> Result<()> {
+pub fn fel_to_efex(
+    image: &ImageWty,
+    fes1_addr: u32,
+    uboot_addr: u32,
+    rep: &Reporter,
+) -> Result<()> {
     if in_efex_mode() {
-        println!("bootstrap: device already in EFEX mode, skipping");
+        rep.step("bootstrap_skipped", "bootstrap: device already in EFEX mode, skipping");
         return Ok(());
     }
 
@@ -60,18 +66,21 @@ pub fn fel_to_efex(image: &ImageWty, fes1_addr: u32, uboot_addr: u32) -> Result<
          or the board may already be past FEL",
     )?;
     let version = fel.get_version()?;
-    println!(
-        "bootstrap: FEL device found (soc_id=0x{:04x})",
-        version.soc_id
+    rep.step(
+        "fel_found",
+        format!("bootstrap: FEL device found (soc_id=0x{:04x})", version.soc_id),
     );
 
     let fes1 = primer(image, "fes1.fex")?;
     fel.write_memory(fes1_addr, &fes1)
         .with_context(|| format!("uploading fes1 primer to {fes1_addr:#x}"))?;
     fel.execute(fes1_addr)?;
-    println!(
-        "bootstrap: fes1 running at {fes1_addr:#x} ({} bytes), initialising DRAM...",
-        fes1.len()
+    rep.step(
+        "fes1_running",
+        format!(
+            "bootstrap: fes1 running at {fes1_addr:#x} ({} bytes), initialising DRAM...",
+            fes1.len()
+        ),
     );
     drop(fel);
 
@@ -82,15 +91,18 @@ pub fn fel_to_efex(image: &ImageWty, fes1_addr: u32, uboot_addr: u32) -> Result<
     fel.write_memory(uboot_addr, &uboot)
         .with_context(|| format!("uploading u-boot primer to {uboot_addr:#x}"))?;
     fel.execute(uboot_addr)?;
-    println!(
-        "bootstrap: u-boot running at {uboot_addr:#x} ({} bytes), waiting for EFEX...",
-        uboot.len()
+    rep.step(
+        "uboot_running",
+        format!(
+            "bootstrap: u-boot running at {uboot_addr:#x} ({} bytes), waiting for EFEX...",
+            uboot.len()
+        ),
     );
     drop(fel);
 
     wait_for_efex(Duration::from_secs(30))
         .context("device never reached EFEX mode after running the u-boot primer")?;
-    println!("bootstrap: EFEX mode reached");
+    rep.step("efex_reached", "bootstrap: EFEX mode reached");
     Ok(())
 }
 

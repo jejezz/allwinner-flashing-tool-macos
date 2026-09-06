@@ -7,3 +7,11 @@ edition = "2021"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 rusb = "0.9"
+serde_json = "1"
+
+[features]
+# Build libusb from source and link it statically instead of picking up the
+# Homebrew dylib. Off by default so ordinary `cargo build` stays fast; turn it
+# on for anything shipped to another machine (a GUI .app bundle), which
+# otherwise fails to launch wherever /opt/homebrew/opt/libusb is absent.
+vendored = ["rusb/vendored"]

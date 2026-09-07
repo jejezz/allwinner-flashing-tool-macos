@@ -51,7 +51,13 @@ void main() {
   group('DeviceStatus', () {
     test('renders the SoC id in the hex form the docs use', () {
       const s = DeviceStatus(DeviceState.fel, socId: 0x1890);
-      expect(s.label, contains('0x1890'));
+      expect(s.socHex, '1890');
+      expect(s.connected, isTrue);
+    });
+
+    test('a device that reports no SoC id has no hex to show', () {
+      const s = DeviceStatus(DeviceState.efex);
+      expect(s.socHex, isNull);
       expect(s.connected, isTrue);
     });
 

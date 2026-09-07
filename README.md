@@ -13,6 +13,12 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 | `aw-tool` (Rust) | CLI. 프로토콜 구현 전체가 여기 있다 |
 | `gui/` (Flutter) | macOS 앱. CLI를 서브프로세스로 실행하고 진행률을 표시한다 |
 
+<img src="docs/images/gui-ko.png" width="620" alt="Allwinner Flasher 메인 화면">
+
+시스템 언어에 따라 한국어와 영어를 지원한다.
+
+<img src="docs/images/gui-en.png" width="620" alt="Allwinner Flasher main window in English">
+
 ## 상태
 
 **CLI**
@@ -177,6 +183,12 @@ MBR / BOOT0 / BOOT1은 선택과 무관하게 항상 기록된다. 사용자 데
 
 `gui/`의 Flutter macOS 앱. 이미지를 고르면 파티션 목록을 미리 보여주고, 보드 연결을 감지해 플래싱 버튼을 활성화하며, 진행률과 로그를 표시한다.
 
+화면 언어는 시스템 설정을 따르며 한국어와 영어를 지원한다. 한 앱만 다른 언어로 띄워 확인하려면:
+
+```bash
+defaults write com.europa.awflasher AppleLanguages -array en   # 되돌리기: defaults delete ...
+```
+
 **전체 포맷을 끄면 파티션 목록에 체크박스가 생긴다.** 체크를 해제한 파티션은 그대로 남는다(위 "파티션 골라 쓰기" 참조). 전체 포맷 모드에서는 체크박스가 잠기고 모두 기록된다 — 포맷은 어차피 전부 지우기 때문이다. 확인 대화상자가 유지할 파티션 이름을 그대로 보여주므로 실행 전에 확인할 수 있다.
 
 ```bash
@@ -279,3 +291,5 @@ EFEX
 | `gui/lib/aw_tool.dart` | CLI 실행 + JSON 이벤트 파싱 |
 | `gui/lib/flasher_model.dart` | 장치 폴링, 이미지 로딩, 플래싱 상태 |
 | `gui/lib/main.dart` | UI |
+| `gui/lib/l10n/*.arb` | 한국어 · 영어 문자열 (generated 파일은 커밋하지 않음) |
+| `gui/lib/about.dart` | About 대화상자 |

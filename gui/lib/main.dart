@@ -1,8 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import 'about.dart';
 import 'aw_tool.dart';
 import 'flasher_model.dart';
+import 'l10n/app_localizations.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -21,8 +23,12 @@ class FlasherApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      // The product name is the same in both languages, so it is not in the
+      // ARB files.
       title: 'Allwinner Flasher',
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
@@ -55,6 +61,14 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The model produces a few user-facing strings of its own; the locale
+    // lives here, so hand them over whenever it resolves or changes.
+    model.l10n = AppLocalizations.of(context);
+  }
+
   void _onChange() => setState(() {});
 
   /// Accent for the whole window, so its state reads from across a bench.
@@ -67,7 +81,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _pickImage() async {
     final picked = await FilePicker.pickFile(
-      dialogTitle: '펌웨어 이미지 선택',
+      dialogTitle: AppLocalizations.of(context).pickerTitle,
       type: FileType.custom,
       allowedExtensions: ['img'],
     );
@@ -90,7 +104,7 @@ class _HomePageState extends State<HomePage> {
         tint: _tint,
         child: SafeArea(
           child: model.toolError != null
-              ? _ToolMissing(message: model.toolError!)
+              ? const _ToolMissing()
               : Padding(
                   padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
                   child: Column(
@@ -127,6 +141,25 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+/// Wording for a device state. Kept here rather than on [DeviceStatus] so the
+/// model layer stays free of localisations.
+String deviceLabel(AppLocalizations l10n, DeviceStatus d) => switch (d.state) {
+      DeviceState.fel =>
+        d.socHex == null ? l10n.deviceFel : l10n.deviceFelWithSoc(d.socHex!),
+      DeviceState.efex => l10n.deviceEfex,
+      DeviceState.none => l10n.deviceWaiting,
+    };
+
+/// Short form for the header pill, which sits next to the card showing
+/// [deviceLabel] — repeating the same sentence twice reads as a bug. The mode
+/// names are protocol terms and are not translated.
+String deviceShortLabel(AppLocalizations l10n, DeviceStatus d) =>
+    switch (d.state) {
+      DeviceState.fel => 'FEL',
+      DeviceState.efex => 'EFEX',
+      DeviceState.none => l10n.deviceShortNone,
+    };
+
 class _Header extends StatelessWidget {
   const _Header({required this.model});
 
@@ -135,6 +168,7 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final device = model.device;
     final (pillColor, pillIcon) = switch (device.state) {
       DeviceState.fel => (AppColors.primary, Icons.usb),
@@ -157,15 +191,21 @@ class _Header extends StatelessWidget {
             children: [
               Text('Allwinner Flasher', style: theme.textTheme.titleLarge),
               const SizedBox(height: 2),
-              Text('T507 / T527 · FEL/EFEX', style: theme.textTheme.labelSmall),
+              Text(l10n.appSubtitle, style: theme.textTheme.labelSmall),
             ],
           ),
         ),
         StatusPill(
-          label: device.shortLabel,
+          label: deviceShortLabel(l10n, device),
           color: pillColor,
           icon: pillIcon,
           pulsing: !device.connected,
+        ),
+        const SizedBox(width: 10),
+        IconButton(
+          tooltip: l10n.aboutTooltip,
+          icon: const Icon(Icons.info_outline, size: 20),
+          onPressed: () => showAboutSheet(context),
         ),
       ],
     );
@@ -223,28 +263,29 @@ class _StepsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return GlassCard(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SectionHeader(title: '순서'),
+          SectionHeader(title: l10n.stepsTitle),
           _Step(
             index: 1,
-            label: '보드를 FEL 모드로 연결',
-            hint: 'FEL 버튼을 누른 채 전원 인가',
+            label: l10n.step1,
+            hint: l10n.step1Hint,
             done: model.device.connected,
           ),
           _Step(
             index: 2,
-            label: '펌웨어 이미지 선택',
-            hint: '.img 안의 파티션 정보를 자동으로 읽습니다',
+            label: l10n.step2,
+            hint: l10n.step2Hint,
             done: model.partitions.isNotEmpty,
           ),
           _Step(
             index: 3,
-            label: '플래싱 시작',
-            hint: 'FEL → EFEX 진입부터 재부팅까지 약 2분',
+            label: l10n.step3,
+            hint: l10n.step3Hint,
             done: false,
           ),
         ],
@@ -325,6 +366,7 @@ class _DeviceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final device = model.device;
     final connected = device.connected;
     final accent =
@@ -345,12 +387,13 @@ class _DeviceCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(device.label, style: theme.textTheme.titleMedium),
+                Text(
+                  deviceLabel(l10n, device),
+                  style: theme.textTheme.titleMedium,
+                ),
                 const SizedBox(height: 3),
                 Text(
-                  connected
-                      ? '플래싱 준비 완료'
-                      : 'FEL 버튼(또는 핀)을 누른 채 전원을 연결하세요',
+                  connected ? l10n.deviceReady : l10n.deviceHint,
                   style: theme.textTheme.labelSmall,
                 ),
               ],
@@ -371,6 +414,7 @@ class _ImageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final path = model.imagePath;
     final loading = model.phase == Phase.loadingImage;
     final loaded = model.partitions.isNotEmpty;
@@ -391,17 +435,20 @@ class _ImageCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  path == null ? '펌웨어 이미지' : path.split('/').last,
+                  path == null ? l10n.imageTitle : path.split('/').last,
                   style: theme.textTheme.titleMedium,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 3),
                 Text(
                   loading
-                      ? '파티션 정보를 읽는 중…'
+                      ? l10n.imageLoading
                       : loaded
-                          ? '기록 대상 ${model.flashableCount}개 / 전체 ${model.partitions.length}개'
-                          : '.img 파일을 선택하세요',
+                          ? l10n.imageSummary(
+                              model.selectedCount,
+                              model.flashableCount,
+                            )
+                          : l10n.imageHint,
                   style: theme.textTheme.labelSmall,
                 ),
               ],
@@ -410,7 +457,7 @@ class _ImageCard extends StatelessWidget {
           const SizedBox(width: 8),
           TextButton(
             onPressed: model.busy ? null : onPick,
-            child: Text(path == null ? '선택' : '변경'),
+            child: Text(path == null ? l10n.choose : l10n.change),
           ),
         ],
       ),
@@ -425,24 +472,25 @@ class _OptionsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return GlassCard(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Column(
         children: [
           _OptionRow(
             icon: Icons.cleaning_services,
-            title: '전체 포맷',
+            title: l10n.optionFullFormat,
             subtitle: model.fullFormat
-                ? '끄면 파티션을 골라 덮어쓸 수 있습니다'
-                : '체크한 파티션만 덮어씁니다',
+                ? l10n.optionFullFormatOn
+                : l10n.optionFullFormatOff,
             value: model.fullFormat,
             onChanged: model.busy ? null : (v) => model.formatFully = v,
           ),
           Divider(indent: 62, endIndent: 12, color: insetFill(context)),
           _OptionRow(
             icon: Icons.restart_alt,
-            title: '완료 후 재부팅',
-            subtitle: '기록이 끝나면 보드를 다시 시작합니다',
+            title: l10n.optionReboot,
+            subtitle: l10n.optionRebootHint,
             value: model.rebootWhenDone,
             onChanged: model.busy ? null : (v) => model.rebootAfter = v,
           ),
@@ -505,12 +553,13 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     if (model.phase == Phase.flashing) {
       return FilledButton.icon(
         style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
         onPressed: model.cancel,
         icon: const Icon(Icons.stop_circle_outlined),
-        label: const Text('중단'),
+        label: Text(l10n.flashStop),
       );
     }
     return FilledButton.icon(
@@ -520,7 +569,9 @@ class _ActionButton extends StatelessWidget {
       ),
       onPressed: model.canFlash ? onFlash : null,
       icon: const Icon(Icons.bolt),
-      label: Text(model.phase == Phase.succeeded ? '다시 플래싱' : '플래싱 시작'),
+      label: Text(
+        model.phase == Phase.succeeded ? l10n.flashAgain : l10n.flashStart,
+      ),
     );
   }
 }
@@ -533,6 +584,7 @@ class _ProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
 
     if (model.phase == Phase.failed) {
       return GlassCard(
@@ -551,10 +603,10 @@ class _ProgressCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('실패', style: theme.textTheme.titleMedium),
+                  Text(l10n.resultFailed, style: theme.textTheme.titleMedium),
                   const SizedBox(height: 4),
                   Text(
-                    model.errorMessage ?? '알 수 없는 오류',
+                    model.errorMessage ?? l10n.resultUnknownError,
                     style: theme.textTheme.labelSmall,
                   ),
                 ],
@@ -581,12 +633,12 @@ class _ProgressCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('완료', style: theme.textTheme.titleMedium),
+                  Text(l10n.resultDone, style: theme.textTheme.titleMedium),
                   const SizedBox(height: 3),
                   Text(
                     model.rebootWhenDone
-                        ? '보드를 재부팅했습니다'
-                        : '기록이 끝났습니다',
+                        ? l10n.resultDoneRebooted
+                        : l10n.resultDoneNoReboot,
                     style: theme.textTheme.labelSmall,
                   ),
                 ],
@@ -608,7 +660,7 @@ class _ProgressCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  current ?? '준비 중…',
+                  current ?? l10n.progressPreparing,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontFamily: current == null ? null : kMonoFamily,
                     fontSize: current == null ? null : 15,
@@ -633,12 +685,16 @@ class _ProgressCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '전체 ${(model.overallProgress * 100).toStringAsFixed(0)}%',
+                l10n.progressOverall(
+                  (model.overallProgress * 100).toStringAsFixed(0),
+                ),
                 style: theme.textTheme.labelSmall,
               ),
               if (current != null)
                 Text(
-                  '이 파티션 ${(model.partitionProgress * 100).toStringAsFixed(0)}%',
+                  l10n.progressPartition(
+                    (model.partitionProgress * 100).toStringAsFixed(0),
+                  ),
                   style: theme.textTheme.labelSmall,
                 ),
             ],
@@ -683,6 +739,7 @@ class _PartitionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final parts = model.partitions;
 
     return GlassCard(
@@ -693,19 +750,16 @@ class _PartitionCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: SectionHeader(
-              title: '파티션',
+              title: l10n.partitionsTitle,
               subtitle: parts.isEmpty
                   ? null
                   : model.selectionEnabled
-                      // addrlo space, matching sys_partition.fex and the
-                      // flashing commands — not the GPT LBA a U-Boot shell
-                      // reports, which sits 0xa000 sectors higher.
-                      ? '체크한 것만 덮어씁니다 · ${model.selectedCount}개 선택'
-                      : '전체 포맷 모드 — 모두 기록됩니다',
+                      ? l10n.partitionsSelectable(model.selectedCount)
+                      : l10n.partitionsFullFormat,
               trailing: model.hasDeselection
                   ? TextButton(
                       onPressed: model.busy ? null : model.selectAll,
-                      child: const Text('전체 선택'),
+                      child: Text(l10n.selectAll),
                     )
                   : null,
             ),
@@ -714,7 +768,7 @@ class _PartitionCard extends StatelessWidget {
             child: parts.isEmpty
                 ? Center(
                     child: Text(
-                      '이미지를 선택하면 표시됩니다',
+                      l10n.partitionsEmpty,
                       style: theme.textTheme.labelSmall,
                     ),
                   )
@@ -794,7 +848,11 @@ class _PartitionRow extends StatelessWidget {
                   flex: 2,
                   child: Text(
                     hasPayload && !selected
-                        ? '유지'
+                        // Start sector is in addrlo space, matching
+                        // sys_partition.fex and the flashing commands — not
+                        // the GPT LBA a U-Boot shell reports, which sits
+                        // 0xa000 sectors higher.
+                        ? AppLocalizations.of(context).partitionKeep
                         : '0x${part.startSector.toRadixString(16)}',
                     style: mono.copyWith(
                       color: hasPayload && !selected
@@ -901,14 +959,15 @@ class _LogCardState extends State<_LogCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return GlassCard(
       padding: const EdgeInsets.fromLTRB(18, 16, 10, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(right: 8),
-            child: SectionHeader(title: '로그'),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: SectionHeader(title: l10n.logTitle),
           ),
           Expanded(
             child: Container(
@@ -920,7 +979,7 @@ class _LogCardState extends State<_LogCard> {
               child: widget.lines.isEmpty
                   ? Center(
                       child: Text(
-                        '아직 기록이 없습니다',
+                        l10n.logEmpty,
                         style: theme.textTheme.labelSmall,
                       ),
                     )
@@ -960,13 +1019,14 @@ class _ConfirmDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
       icon: const IconBadge(
         icon: Icons.warning_amber_rounded,
         color: AppColors.warning,
         active: true,
       ),
-      title: const Text('보드를 플래싱할까요?'),
+      title: Text(l10n.confirmTitle),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 380),
         child: Column(
@@ -975,8 +1035,8 @@ class _ConfirmDialog extends StatelessWidget {
           children: [
             Text(
               model.fullFormat
-                  ? '저장소를 전체 포맷한 뒤 기록합니다.'
-                  : '전체 포맷 없이 ${model.selectedCount}개 파티션을 덮어씁니다.',
+                  ? l10n.confirmFullFormat
+                  : l10n.confirmPartial(model.selectedCount),
               style: theme.textTheme.bodyLarge,
             ),
             if (model.keptNames.isNotEmpty) ...[
@@ -986,10 +1046,8 @@ class _ConfirmDialog extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               model.fullFormat
-                  ? '보드의 기존 내용은 모두 사라지며 되돌릴 수 없습니다. '
-                      '작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.'
-                  : '덮어쓰는 파티션의 기존 내용은 사라지며 되돌릴 수 없습니다. '
-                      '작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.',
+                  ? l10n.confirmWarningFull
+                  : l10n.confirmWarningPartial,
               style: theme.textTheme.bodyMedium,
             ),
           ],
@@ -998,7 +1056,7 @@ class _ConfirmDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('취소'),
+          child: Text(l10n.cancel),
         ),
         FilledButton(
           style: FilledButton.styleFrom(
@@ -1006,7 +1064,7 @@ class _ConfirmDialog extends StatelessWidget {
             minimumSize: const Size(120, 44),
           ),
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('플래싱'),
+          child: Text(l10n.confirmFlash),
         ),
       ],
     );
@@ -1024,6 +1082,7 @@ class _KeptList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1041,7 +1100,7 @@ class _KeptList extends StatelessWidget {
                   size: 15, color: AppColors.success),
               const SizedBox(width: 7),
               Text(
-                '유지 (덮어쓰지 않음)',
+                l10n.confirmKeptTitle,
                 style: theme.textTheme.labelLarge
                     ?.copyWith(color: AppColors.success),
               ),
@@ -1059,13 +1118,12 @@ class _KeptList extends StatelessWidget {
 }
 
 class _ToolMissing extends StatelessWidget {
-  const _ToolMissing({required this.message});
-
-  final String message;
+  const _ToolMissing();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
@@ -1083,11 +1141,10 @@ class _ToolMissing extends StatelessWidget {
                 size: 52,
               ),
               const SizedBox(height: 16),
-              Text('helper를 찾을 수 없습니다',
-                  style: theme.textTheme.titleMedium),
+              Text(l10n.toolMissingTitle, style: theme.textTheme.titleMedium),
               const SizedBox(height: 8),
               Text(
-                message,
+                l10n.toolMissingBody,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium,
               ),

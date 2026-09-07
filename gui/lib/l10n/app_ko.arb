@@ -1,0 +1,82 @@
+{
+  "@@locale": "ko",
+
+  "appSubtitle": "T507 / T527 · FEL/EFEX",
+
+  "deviceFel": "FEL 모드",
+  "deviceFelWithSoc": "FEL 모드 (soc 0x{soc})",
+  "deviceEfex": "EFEX 모드",
+  "deviceWaiting": "보드 연결 대기",
+  "deviceShortNone": "연결 안 됨",
+  "deviceReady": "플래싱 준비 완료",
+  "deviceHint": "FEL 버튼(또는 핀)을 누른 채 전원을 연결하세요",
+
+  "imageTitle": "펌웨어 이미지",
+  "imageHint": ".img 파일을 선택하세요",
+  "imageLoading": "파티션 정보를 읽는 중…",
+  "imageSummary": "전체 {total}개 중 {selected}개 기록",
+  "choose": "선택",
+  "change": "변경",
+  "pickerTitle": "펌웨어 이미지 선택",
+
+  "optionFullFormat": "전체 포맷",
+  "optionFullFormatOn": "끄면 파티션을 골라 덮어쓸 수 있습니다",
+  "optionFullFormatOff": "체크한 파티션만 덮어씁니다",
+  "optionReboot": "완료 후 재부팅",
+  "optionRebootHint": "기록이 끝나면 보드를 다시 시작합니다",
+
+  "flashStart": "플래싱 시작",
+  "flashAgain": "다시 플래싱",
+  "flashStop": "중단",
+
+  "progressPreparing": "준비 중…",
+  "progressOverall": "전체 {percent}%",
+  "progressPartition": "이 파티션 {percent}%",
+
+  "resultDone": "완료",
+  "resultDoneRebooted": "보드를 재부팅했습니다",
+  "resultDoneNoReboot": "기록이 끝났습니다",
+  "resultFailed": "실패",
+  "resultUnknownError": "알 수 없는 오류",
+
+  "partitionsTitle": "파티션",
+  "partitionsSelectable": "체크한 것만 덮어씁니다 · {count}개 선택",
+  "partitionsFullFormat": "전체 포맷 모드 — 모두 기록됩니다",
+  "partitionsEmpty": "이미지를 선택하면 표시됩니다",
+  "partitionKeep": "유지",
+  "selectAll": "전체 선택",
+
+  "logTitle": "로그",
+  "logEmpty": "아직 기록이 없습니다",
+
+  "stepsTitle": "순서",
+  "step1": "보드를 FEL 모드로 연결",
+  "step1Hint": "FEL 버튼을 누른 채 전원 인가",
+  "step2": "펌웨어 이미지 선택",
+  "step2Hint": ".img 안의 파티션 정보를 자동으로 읽습니다",
+  "step3": "플래싱 시작",
+  "step3Hint": "FEL → EFEX 진입부터 재부팅까지 약 2분",
+
+  "confirmTitle": "보드를 플래싱할까요?",
+  "confirmFullFormat": "저장소를 전체 포맷한 뒤 기록합니다.",
+  "confirmPartial": "전체 포맷 없이 {count}개 파티션을 덮어씁니다.",
+  "confirmKeptTitle": "유지 (덮어쓰지 않음)",
+  "confirmWarningFull": "보드의 기존 내용은 모두 사라지며 되돌릴 수 없습니다. 작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.",
+  "confirmWarningPartial": "덮어쓰는 파티션의 기존 내용은 사라지며 되돌릴 수 없습니다. 작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.",
+  "cancel": "취소",
+  "confirmFlash": "플래싱",
+
+  "toolMissingTitle": "helper를 찾을 수 없습니다",
+  "toolMissingBody": "aw-tool 실행 파일을 찾지 못했습니다.\n개발 중이라면 저장소 루트에서 `cargo build --release`를 먼저 실행하세요.",
+
+  "aboutTooltip": "정보",
+  "aboutDescription": "Allwinner T507 / T527 보드를 macOS에서 FEL/EFEX USB 프로토콜로 플래싱합니다. Windows 전용인 PhoenixSuit을 대체합니다.\n\n이미지에서 직접 꺼낸 프라이머로 보드를 FEL에서 EFEX로 넘긴 뒤, 파티션 테이블과 각 파티션, BOOT1, BOOT0을 기록합니다.",
+
+  "planLine": "계획: 파티션 {count}개, {megabytes} MB",
+  "errorPrefix": "오류: {message}",
+  "failedStep": "{step} 실패: {message}",
+  "stepExtract": "sys_partition.fex 추출",
+  "stepListPartitions": "파티션 목록 읽기",
+  "errorNoResult": "플래싱이 결과를 보고하지 않고 종료했습니다.",
+  "errorInterrupted": "플래싱이 중단되었습니다 (종료 코드 {code}).\n기록이 끝나지 않은 상태라 보드는 부팅되지 않습니다. 다시 플래싱하세요."
+}

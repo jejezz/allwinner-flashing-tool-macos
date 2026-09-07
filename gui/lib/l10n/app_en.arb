@@ -1,0 +1,121 @@
+{
+  "@@locale": "en",
+
+  "appSubtitle": "T507 / T527 · FEL/EFEX",
+
+  "deviceFel": "FEL mode",
+  "deviceFelWithSoc": "FEL mode (soc 0x{soc})",
+  "@deviceFelWithSoc": {
+    "placeholders": { "soc": { "type": "String" } }
+  },
+  "deviceEfex": "EFEX mode",
+  "deviceWaiting": "Waiting for a board",
+  "deviceShortNone": "Not connected",
+  "deviceReady": "Ready to flash",
+  "deviceHint": "Hold the FEL button (or pin) while connecting power",
+
+  "imageTitle": "Firmware image",
+  "imageHint": "Choose a .img file",
+  "imageLoading": "Reading partition table…",
+  "imageSummary": "{selected} of {total} partitions will be written",
+  "@imageSummary": {
+    "placeholders": {
+      "selected": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "choose": "Choose",
+  "change": "Change",
+  "pickerTitle": "Select firmware image",
+
+  "optionFullFormat": "Full format",
+  "optionFullFormatOn": "Turn off to pick individual partitions",
+  "optionFullFormatOff": "Only checked partitions are overwritten",
+  "optionReboot": "Reboot when done",
+  "optionRebootHint": "Restarts the board once writing finishes",
+
+  "flashStart": "Start flashing",
+  "flashAgain": "Flash again",
+  "flashStop": "Stop",
+
+  "progressPreparing": "Preparing…",
+  "progressOverall": "Overall {percent}%",
+  "@progressOverall": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "progressPartition": "This partition {percent}%",
+  "@progressPartition": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+
+  "resultDone": "Done",
+  "resultDoneRebooted": "The board has been rebooted",
+  "resultDoneNoReboot": "Writing finished",
+  "resultFailed": "Failed",
+  "resultUnknownError": "Unknown error",
+
+  "partitionsTitle": "Partitions",
+  "partitionsSelectable": "Only checked ones are overwritten · {count} selected",
+  "@partitionsSelectable": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "partitionsFullFormat": "Full format — everything will be written",
+  "partitionsEmpty": "Shown once an image is selected",
+  "partitionKeep": "keep",
+  "selectAll": "Select all",
+
+  "logTitle": "Log",
+  "logEmpty": "Nothing logged yet",
+
+  "stepsTitle": "Steps",
+  "step1": "Connect the board in FEL mode",
+  "step1Hint": "Power on while holding the FEL button",
+  "step2": "Choose a firmware image",
+  "step2Hint": "The partition table is read from the .img",
+  "step3": "Start flashing",
+  "step3Hint": "About 2 minutes, from FEL→EFEX through reboot",
+
+  "confirmTitle": "Flash this board?",
+  "confirmFullFormat": "The storage will be fully formatted, then written.",
+  "confirmPartial": "{count} partitions will be overwritten, without a full format.",
+  "@confirmPartial": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "confirmKeptTitle": "Kept (not overwritten)",
+  "confirmWarningFull": "Everything on the board will be erased and cannot be recovered. Do not unplug the cable or cut power while it runs.",
+  "confirmWarningPartial": "The partitions being overwritten cannot be recovered. Do not unplug the cable or cut power while it runs.",
+  "cancel": "Cancel",
+  "confirmFlash": "Flash",
+
+  "toolMissingTitle": "Helper not found",
+  "toolMissingBody": "Could not find the aw-tool executable.\nIf you are working in the checkout, run `cargo build --release` first.",
+
+  "aboutTooltip": "About",
+  "aboutDescription": "Flashes Allwinner T507 / T527 boards from macOS over the FEL/EFEX USB protocol — a replacement for the Windows-only PhoenixSuit.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written.",
+
+  "planLine": "Plan: {count} partitions, {megabytes} MB",
+  "@planLine": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "megabytes": { "type": "int" }
+    }
+  },
+  "errorPrefix": "Error: {message}",
+  "@errorPrefix": {
+    "placeholders": { "message": { "type": "String" } }
+  },
+  "failedStep": "{step} failed: {message}",
+  "@failedStep": {
+    "placeholders": {
+      "step": { "type": "String" },
+      "message": { "type": "String" }
+    }
+  },
+  "stepExtract": "Extracting sys_partition.fex",
+  "stepListPartitions": "Reading the partition list",
+  "errorNoResult": "Flashing exited without reporting a result.",
+  "errorInterrupted": "Flashing was interrupted (exit code {code}).\nWriting did not finish, so the board will not boot. Flash it again.",
+  "@errorInterrupted": {
+    "placeholders": { "code": { "type": "int" } }
+  }
+}

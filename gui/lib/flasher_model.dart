@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'aw_tool.dart';
+import 'l10n/app_localizations.dart';
 
 enum Phase { idle, loadingImage, flashing, succeeded, failed }
 
@@ -14,6 +15,14 @@ class FlasherModel extends ChangeNotifier {
 
   AwTool? _tool;
   String? toolError;
+
+  /// Supplied by the widget tree, which is where the locale lives. The few
+  /// user-facing strings the model produces itself (log lines, its own error
+  /// wording) go through this; everything else in the log comes from the CLI
+  /// and stays in the CLI's own English.
+  AppLocalizations? _l10n;
+
+  set l10n(AppLocalizations value) => _l10n = value;
 
   Phase phase = Phase.idle;
   DeviceStatus device = DeviceStatus.disconnected;
@@ -186,10 +195,10 @@ class FlasherModel extends ChangeNotifier {
         '--out',
         fex,
       ]);
-      _failIfError(extract, 'sys_partition.fex 추출');
+      _failIfError(extract, _l10n?.stepExtract ?? 'extract');
 
       final listed = await _tool!.collect(['list-partitions', fex]);
-      _failIfError(listed, '파티션 목록 읽기');
+      _failIfError(listed, _l10n?.stepListPartitions ?? 'list-partitions');
 
       final data = listed.where((e) => e.event == 'partitions').firstOrNull;
       final raw = (data?.raw['partitions'] as List?) ?? const [];
@@ -209,7 +218,9 @@ class FlasherModel extends ChangeNotifier {
   void _failIfError(List<AwEvent> events, String what) {
     final err = events.where((e) => e.event == 'error').firstOrNull;
     if (err != null) {
-      throw Exception('$what 실패: ${err.message}');
+      throw Exception(
+        _l10n?.failedStep(what, err.message ?? '') ?? '$what failed: ${err.message}',
+      );
     }
   }
 
@@ -254,9 +265,9 @@ class FlasherModel extends ChangeNotifier {
         // killed, or died without reporting.
         phase = Phase.failed;
         errorMessage ??= code == 0
-            ? '플래싱이 결과를 보고하지 않고 종료했습니다.'
-            : '플래싱이 중단되었습니다 (종료 코드 $code).\n'
-                '기록이 끝나지 않은 상태라 보드는 부팅되지 않습니다. 다시 플래싱하세요.';
+            ? _l10n?.errorNoResult ?? 'Flashing exited without a result.'
+            : _l10n?.errorInterrupted(code) ??
+                'Flashing was interrupted (exit code $code).';
       }
     } catch (e) {
       phase = Phase.failed;
@@ -273,7 +284,8 @@ class FlasherModel extends ChangeNotifier {
         _totalBytes = e.intOr('total_bytes', 0);
         partitionCount = e.intOr('partitions', 0);
         log.add(
-          '계획: 파티션 $partitionCount개, ${_mb(_totalBytes)} MB',
+          _l10n?.planLine(partitionCount, _mb(_totalBytes)) ??
+              'plan: $partitionCount partitions, ${_mb(_totalBytes)} MB',
         );
       case 'step':
         if (e.message != null) log.add(e.message!);
@@ -300,7 +312,7 @@ class FlasherModel extends ChangeNotifier {
       case 'error':
         phase = Phase.failed;
         errorMessage = e.message;
-        log.add('오류: ${e.message}');
+        log.add(_l10n?.errorPrefix(e.message ?? '') ?? 'error: ${e.message}');
       case 'done':
         phase = Phase.succeeded;
         _currentFraction = 0;

@@ -150,22 +150,10 @@ class DeviceStatus {
 
   bool get connected => state != DeviceState.none;
 
-  /// Full description, for the device card.
-  String get label => switch (state) {
-        DeviceState.fel => socId == null
-            ? 'FEL 모드'
-            : 'FEL 모드 (soc 0x${socId!.toRadixString(16).padLeft(4, '0')})',
-        DeviceState.efex => 'EFEX 모드',
-        DeviceState.none => '보드 연결 대기',
-      };
-
-  /// Two or three characters for the header pill, which sits next to the card
-  /// showing [label] — repeating the same sentence twice reads as a bug.
-  String get shortLabel => switch (state) {
-        DeviceState.fel => 'FEL',
-        DeviceState.efex => 'EFEX',
-        DeviceState.none => '연결 안 됨',
-      };
+  /// SoC id in the 4-digit hex form the docs and UART logs use, or null when
+  /// the device did not report one. Wording lives in the UI layer, which has
+  /// the localisations; this class only carries the facts.
+  String? get socHex => socId?.toRadixString(16).padLeft(4, '0');
 }
 
 /// A partition as computed from `sys_partition.fex`.

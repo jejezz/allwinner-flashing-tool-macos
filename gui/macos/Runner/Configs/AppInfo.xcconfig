@@ -11,4 +11,4 @@ PRODUCT_NAME = Allwinner Flasher
 PRODUCT_BUNDLE_IDENTIFIER = com.europa.awflasher
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 europa. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 jyahn. All rights reserved.

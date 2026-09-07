@@ -7,7 +7,7 @@ mod sparse;
 mod sunxi_head;
 mod sys_partition;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use event::Reporter;
 use std::path::PathBuf;
@@ -141,11 +141,92 @@ enum Command {
         /// Reboot the device once everything is written.
         #[arg(long, default_value = "true")]
         reboot: bool,
+        /// Write ONLY these partitions (comma-separated names from
+        /// sys_partition.fex). Requires `--erase-flag 0`: with a full format
+        /// every partition is erased first, so one left out would be blank
+        /// rather than preserved.
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+
+        /// Write everything EXCEPT these partitions — the way to keep a
+        /// partition the board has modified (`env`, `userdata`) while
+        /// updating the rest. Same `--erase-flag 0` requirement as `--only`.
+        #[arg(long, value_delimiter = ',')]
+        skip: Vec<String>,
+
         /// Skip the automatic FEL→EFEX bootstrap and require the device to
         /// already be in EFEX.
         #[arg(long)]
         no_bootstrap: bool,
     },
+}
+
+/// Which partitions a run should write.
+enum Selection {
+    All,
+    Only(Vec<String>),
+    Except(Vec<String>),
+}
+
+impl Selection {
+    /// Resolve `--only` / `--skip` against the erase flag and the partition
+    /// table.
+    ///
+    /// Unknown names are an error rather than a silent no-op: a typo in
+    /// `--skip env` would otherwise quietly overwrite the very partition the
+    /// caller was trying to protect.
+    fn resolve(
+        only: Vec<String>,
+        skip: Vec<String>,
+        erase_flag: u32,
+        sp: &sys_partition::SysPartition,
+    ) -> Result<Self> {
+        if only.is_empty() && skip.is_empty() {
+            return Ok(Selection::All);
+        }
+        if !only.is_empty() && !skip.is_empty() {
+            bail!("--only and --skip cannot be combined");
+        }
+        if erase_flag != 0 {
+            bail!(
+                "--only/--skip need `--erase-flag 0`.\n\
+                 A full format (erase_flag=1) erases every partition before writing, so a \
+                 partition left out would end up blank, not preserved."
+            );
+        }
+
+        let names = if only.is_empty() { &skip } else { &only };
+        for name in names {
+            if sp.find(name).is_none() {
+                bail!(
+                    "partition '{name}' is not in sys_partition.fex (known: {})",
+                    sp.partitions
+                        .iter()
+                        .map(|p| p.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+
+        Ok(if only.is_empty() {
+            Selection::Except(skip)
+        } else {
+            Selection::Only(only)
+        })
+    }
+
+    fn includes(&self, name: &str) -> bool {
+        match self {
+            Selection::All => true,
+            Selection::Only(names) => names.iter().any(|n| n == name),
+            Selection::Except(names) => !names.iter().any(|n| n == name),
+        }
+    }
+
+    fn is_partial(&self) -> bool {
+        !matches!(self, Selection::All)
+    }
 }
 
 /// Which path `write_partition_auto` took, for reporting.
@@ -572,11 +653,14 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             skip_larger_than,
             boot0_item,
             reboot,
+            only,
+            skip,
             no_bootstrap,
         } => {
             let sp_text = std::fs::read_to_string(&sys_partition_fex)
                 .with_context(|| format!("reading {:?}", sys_partition_fex))?;
             let sp = sys_partition::SysPartition::parse(&sp_text)?;
+            let selection = Selection::resolve(only, skip, erase_flag, &sp)?;
             let img = imagewty::ImageWty::open(&image)?;
 
             let mbr_item = img.find("sunxi_mbr.fex").context("sunxi_mbr.fex not found")?;
@@ -598,6 +682,10 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             let mut jobs = Vec::new();
             for p in &sp.partitions {
                 let Some(filename) = &p.downloadfile else { continue };
+                if !selection.includes(&p.name) {
+                    rep.log(format!("keeping '{}' (not selected)", p.name));
+                    continue;
+                }
                 let item = img
                     .find(filename)
                     .with_context(|| format!("{filename} (for partition '{}') not found in image", p.name))?;
@@ -616,13 +704,19 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                 });
             }
 
+            if jobs.is_empty() {
+                bail!("nothing selected to write");
+            }
+
             let total_bytes: u64 = jobs.iter().map(|j| j.data.len() as u64).sum();
+            let names: Vec<&str> = jobs.iter().map(|j| j.name.as_str()).collect();
             rep.plan(
-                jobs.len(),
+                &names,
                 total_bytes,
                 mbr_data.len(),
                 boot1_data.len(),
                 boot0_data.len(),
+                selection.is_partial(),
             );
 
             if !no_bootstrap {

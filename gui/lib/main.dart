@@ -432,7 +432,9 @@ class _OptionsCard extends StatelessWidget {
           _OptionRow(
             icon: Icons.cleaning_services,
             title: '전체 포맷',
-            subtitle: '끄면 덮어쓰기만 합니다',
+            subtitle: model.fullFormat
+                ? '끄면 파티션을 골라 덮어쓸 수 있습니다'
+                : '체크한 파티션만 덮어씁니다',
             value: model.fullFormat,
             onChanged: model.busy ? null : (v) => model.formatFully = v,
           ),
@@ -692,10 +694,20 @@ class _PartitionCard extends StatelessWidget {
             padding: const EdgeInsets.only(right: 8),
             child: SectionHeader(
               title: '파티션',
-              // addrlo space, matching sys_partition.fex and the flashing
-              // commands — not the GPT LBA a U-Boot shell reports, which sits
-              // 0xa000 sectors higher.
-              subtitle: parts.isEmpty ? null : 'addrlo 기준 시작 섹터',
+              subtitle: parts.isEmpty
+                  ? null
+                  : model.selectionEnabled
+                      // addrlo space, matching sys_partition.fex and the
+                      // flashing commands — not the GPT LBA a U-Boot shell
+                      // reports, which sits 0xa000 sectors higher.
+                      ? '체크한 것만 덮어씁니다 · ${model.selectedCount}개 선택'
+                      : '전체 포맷 모드 — 모두 기록됩니다',
+              trailing: model.hasDeselection
+                  ? TextButton(
+                      onPressed: model.busy ? null : model.selectAll,
+                      child: const Text('전체 선택'),
+                    )
+                  : null,
             ),
           ),
           Expanded(
@@ -730,16 +742,19 @@ class _PartitionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCurrent = model.currentPartition == part.name;
-    final willFlash = part.downloadFile != null;
+    // Nothing to write means nothing to choose: the row is informational.
+    final hasPayload = part.downloadFile != null;
+    final selected = hasPayload && model.isSelected(part.name);
+    final canToggle = hasPayload && model.selectionEnabled && !model.busy;
+
     final mono = TextStyle(
       fontFamily: kMonoFamily,
       fontSize: 11,
-      color: willFlash ? AppColors.hi(context) : AppColors.mid(context),
+      color: selected ? AppColors.hi(context) : AppColors.mid(context),
     );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: isCurrent
             ? AppColors.accent.withValues(alpha: 0.18)
@@ -751,33 +766,105 @@ class _PartitionRow extends StatelessWidget {
               : Colors.transparent,
         ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            margin: const EdgeInsets.only(right: 10),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: willFlash
-                  ? (isCurrent ? AppColors.accent : AppColors.primary)
-                  : AppColors.idle.withValues(alpha: 0.5),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: canToggle ? () => model.toggle(part.name) : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            child: Row(
+              children: [
+                _Mark(
+                  hasPayload: hasPayload,
+                  selected: selected,
+                  selectable: canToggle,
+                  isCurrent: isCurrent,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    part.name,
+                    style: mono,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    hasPayload && !selected
+                        ? '유지'
+                        : '0x${part.startSector.toRadixString(16)}',
+                    style: mono.copyWith(
+                      color: hasPayload && !selected
+                          ? AppColors.warning
+                          : AppColors.mid(context),
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
             ),
           ),
-          Expanded(
-            flex: 3,
-            child: Text(part.name, style: mono, overflow: TextOverflow.ellipsis),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              '0x${part.startSector.toRadixString(16)}',
-              style: mono.copyWith(color: AppColors.mid(context)),
-              textAlign: TextAlign.right,
-            ),
-          ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+/// Leading indicator: a checkbox where there is a choice to make, a plain dot
+/// where there is not (full-format mode, or a partition with no payload).
+class _Mark extends StatelessWidget {
+  const _Mark({
+    required this.hasPayload,
+    required this.selected,
+    required this.selectable,
+    required this.isCurrent,
+  });
+
+  final bool hasPayload;
+  final bool selected;
+  final bool selectable;
+  final bool isCurrent;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!selectable) {
+      return Container(
+        width: 16,
+        height: 16,
+        alignment: Alignment.center,
+        child: Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: !hasPayload
+                ? AppColors.idle.withValues(alpha: 0.5)
+                : (isCurrent ? AppColors.accent : AppColors.primary),
+          ),
+        ),
+      );
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      width: 16,
+      height: 16,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(5),
+        color: selected ? AppColors.primary : Colors.transparent,
+        border: Border.all(
+          color: selected
+              ? AppColors.primary
+              : AppColors.idle.withValues(alpha: 0.7),
+          width: 1.5,
+        ),
+      ),
+      child: selected
+          ? const Icon(Icons.check, size: 11, color: Colors.white)
+          : null,
     );
   }
 }
@@ -880,23 +967,33 @@ class _ConfirmDialog extends StatelessWidget {
         active: true,
       ),
       title: const Text('보드를 플래싱할까요?'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            model.fullFormat
-                ? '저장소를 전체 포맷한 뒤 기록합니다.'
-                : '전체 포맷 없이 덮어쓰기만 합니다.',
-            style: theme.textTheme.bodyLarge,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '보드의 기존 내용은 사라지며 되돌릴 수 없습니다. '
-            '작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.',
-            style: theme.textTheme.bodyMedium,
-          ),
-        ],
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              model.fullFormat
+                  ? '저장소를 전체 포맷한 뒤 기록합니다.'
+                  : '전체 포맷 없이 ${model.selectedCount}개 파티션을 덮어씁니다.',
+              style: theme.textTheme.bodyLarge,
+            ),
+            if (model.keptNames.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _KeptList(names: model.keptNames),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              model.fullFormat
+                  ? '보드의 기존 내용은 모두 사라지며 되돌릴 수 없습니다. '
+                      '작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.'
+                  : '덮어쓰는 파티션의 기존 내용은 사라지며 되돌릴 수 없습니다. '
+                      '작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -912,6 +1009,51 @@ class _ConfirmDialog extends StatelessWidget {
           child: const Text('플래싱'),
         ),
       ],
+    );
+  }
+}
+
+/// The partitions being left alone, spelled out in the confirmation — this is
+/// the reason the user turned full format off, so it should be the thing they
+/// can check before committing.
+class _KeptList extends StatelessWidget {
+  const _KeptList({required this.names});
+
+  final List<String> names;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.success.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.shield_outlined,
+                  size: 15, color: AppColors.success),
+              const SizedBox(width: 7),
+              Text(
+                '유지 (덮어쓰지 않음)',
+                style: theme.textTheme.labelLarge
+                    ?.copyWith(color: AppColors.success),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            names.join(', '),
+            style: const TextStyle(fontFamily: kMonoFamily, fontSize: 11.5),
+          ),
+        ],
+      ),
     );
   }
 }

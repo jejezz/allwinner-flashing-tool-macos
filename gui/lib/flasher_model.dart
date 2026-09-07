@@ -26,6 +26,44 @@ class FlasherModel extends ChangeNotifier {
   bool fullFormat = true;
   bool rebootWhenDone = true;
 
+  /// Partitions the user has unchecked, to be left as they are on the board.
+  /// Held as the exclusion set rather than the inclusion set so that loading a
+  /// different image defaults to writing everything.
+  final Set<String> _keep = {};
+
+  /// Per-partition choice only means something in overwrite-only mode: a full
+  /// format erases every partition first, so an unchecked one would end up
+  /// blank rather than preserved. The CLI refuses the combination outright.
+  bool get selectionEnabled => !fullFormat;
+
+  bool isSelected(String name) => fullFormat || !_keep.contains(name);
+
+  /// Partitions that have something to write and are checked.
+  int get selectedCount =>
+      partitions.where((p) => p.downloadFile != null && isSelected(p.name)).length;
+
+  bool get hasDeselection => selectionEnabled && _keep.isNotEmpty;
+
+  /// Unchecked partitions that would otherwise have been written, in table
+  /// order — what the confirmation dialog promises to leave alone.
+  List<String> get keptNames => selectionEnabled
+      ? partitions
+          .where((p) => p.downloadFile != null && _keep.contains(p.name))
+          .map((p) => p.name)
+          .toList()
+      : const [];
+
+  void toggle(String name) {
+    if (!selectionEnabled) return;
+    if (!_keep.remove(name)) _keep.add(name);
+    notifyListeners();
+  }
+
+  void selectAll() {
+    _keep.clear();
+    notifyListeners();
+  }
+
   set formatFully(bool v) {
     fullFormat = v;
     notifyListeners();
@@ -62,6 +100,7 @@ class FlasherModel extends ChangeNotifier {
       imagePath != null &&
       _sysPartitionPath != null &&
       device.connected &&
+      selectedCount > 0 &&
       !busy;
 
   double get overallProgress {
@@ -131,6 +170,9 @@ class FlasherModel extends ChangeNotifier {
     partitions = [];
     _sysPartitionPath = null;
     errorMessage = null;
+    // A different image means a different partition table; carrying the old
+    // exclusions over would silently protect names that may not exist here.
+    _keep.clear();
     notifyListeners();
 
     try {
@@ -187,6 +229,9 @@ class FlasherModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // `--skip` rather than `--only`: the exclusion set is what the user
+      // actually chose, and it keeps the command short and readable in a log.
+      final keeping = _keep.toList()..sort();
       final run = await _tool!.start([
         'flash-all',
         imagePath!,
@@ -194,6 +239,7 @@ class FlasherModel extends ChangeNotifier {
         '--erase-flag',
         fullFormat ? '1' : '0',
         if (rebootWhenDone) '--reboot',
+        if (selectionEnabled && keeping.isNotEmpty) ...['--skip', keeping.join(',')],
       ]);
       _run = run;
 

@@ -31,13 +31,13 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 | 항목 | 상태 |
 |---|---|
 | 빌드 · 실행 · 번들된 helper 사용 | 확인 (릴리즈 `.app`, Homebrew 링크 0) |
-| 화면 렌더링 (대기 상태) | 확인 |
-| 이미지 선택 → 파티션 목록 표시 | **실기 미검증** |
-| 장치 감지 (FEL / EFEX 판별) | **실기 미검증** — 보드 없이는 `none`만 확인 가능 |
-| 플래싱 진행률 · 완료 · 실패 화면 | **실기 미검증** — 해당 상태에 진입하려면 보드가 필요 |
+| GUI로 T527 전체 플래싱 성공 | 실기 검증 완료 (2026-09-07) |
+| 장치 감지 · 이미지 선택 · 진행률 · 완료 화면 | 위 플래싱 과정에서 확인 |
+| 실패 화면 | **실기 미검증** |
 | 중단 버튼 | **실기 미검증** |
+| 파티션 골라 쓰기 (체크박스 / `--skip`) | **실기 미검증** — CLI 필터링과 가드는 실제 이미지로 오프라인 확인 |
 
-GUI의 미검증 항목은 모두 보드가 있어야 도달하는 화면이다. 그 아래의 CLI 경로는 검증이 끝나 있고, GUI가 CLI에 넣은 변경은 진행률 콜백 인자 추가뿐이다 — `fes_down` 시퀀스, 청크 크기, 스파스 확장 로직은 그대로다.
+미검증 항목은 모두 실제로 그 상황을 만들어야 도달한다(중단, 실패, 선택 기록). 선택 기능의 CLI 쪽은 실제 wallpad 이미지로 파티션 12개 → 10개 필터링과 세 가지 거부 조건(전체 포맷과 병용, 이름 오타, `--only`/`--skip` 동시 사용)을 확인했다.
 
 ## 요구 사항
 
@@ -112,9 +112,32 @@ bootstrap: EFEX mode reached
 |---|---|
 | `--reboot` | 완료 후 재부팅 |
 | `--erase-flag 0` | 전체 포맷 대신 덮어쓰기만 |
+| `--skip env_a,misc` | 해당 파티션은 건드리지 않음 (`--erase-flag 0` 필요) |
+| `--only super,boot_a` | 해당 파티션만 기록 (`--erase-flag 0` 필요) |
 | `--boot0-item boot0_nand.fex` | NAND 보드용 BOOT0 선택 (기본값은 `boot0_sdcard.fex`) |
 | `--skip-larger-than <bytes>` | 큰 파티션 건너뛰기 (부분 테스트용) |
 | `--no-bootstrap` | 자동 FEL→EFEX 진입 끄기 |
+
+### 파티션 골라 쓰기
+
+보드가 스스로 바꿔 놓은 파티션(`env_a`, `misc` 등)을 남긴 채 나머지만 갱신할 때 쓴다.
+
+```bash
+aw-tool flash-all firmware.img sys_partition.fex --erase-flag 0 --skip env_a,misc --reboot
+```
+
+```
+keeping 'env_a' (not selected)
+keeping 'misc' (not selected)
+plan: MBR(65536 B) + 10 partitions (1017 MB total) + BOOT1(1376256 B) + BOOT0(69632 B)
+      선택된 파티션만 기록: bootloader_a, boot_a, vendor_boot_a, ...
+```
+
+**`--erase-flag 0`이 반드시 필요하며, 없으면 명령이 거부된다.** 전체 포맷(`erase_flag=1`)은 기록 전에 모든 파티션을 지우므로, 빼놓은 파티션은 보존되는 게 아니라 **빈 채로 남는다.** 보존 의도와 정반대 결과라 조합 자체를 막았다.
+
+`sys_partition.fex`에 없는 이름을 주면 에러가 나고 알려진 이름 목록을 보여준다. 조용히 무시하면 `--skip env`(실제 이름은 `env_a`) 같은 오타가 바로 지키려던 파티션을 덮어쓰게 된다.
+
+MBR / BOOT0 / BOOT1은 선택과 무관하게 항상 기록된다. 사용자 데이터가 아니라 펌웨어에 속하는 영역이다.
 
 ## 명령 목록
 
@@ -153,6 +176,8 @@ bootstrap: EFEX mode reached
 ## GUI
 
 `gui/`의 Flutter macOS 앱. 이미지를 고르면 파티션 목록을 미리 보여주고, 보드 연결을 감지해 플래싱 버튼을 활성화하며, 진행률과 로그를 표시한다.
+
+**전체 포맷을 끄면 파티션 목록에 체크박스가 생긴다.** 체크를 해제한 파티션은 그대로 남는다(위 "파티션 골라 쓰기" 참조). 전체 포맷 모드에서는 체크박스가 잠기고 모두 기록된다 — 포맷은 어차피 전부 지우기 때문이다. 확인 대화상자가 유지할 파티션 이름을 그대로 보여주므로 실행 전에 확인할 수 있다.
 
 ```bash
 ./scripts/build-app.sh

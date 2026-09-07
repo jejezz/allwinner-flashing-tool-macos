@@ -104,28 +104,35 @@ impl Reporter {
     /// touched, so a front-end can size its progress bar up front.
     pub fn plan(
         &self,
-        partitions: usize,
+        names: &[&str],
         total_bytes: u64,
         mbr_bytes: usize,
         boot1_bytes: usize,
         boot0_bytes: usize,
+        partial: bool,
     ) {
         if self.json {
             self.emit(json!({
                 "event": "plan",
-                "partitions": partitions,
+                "partitions": names.len(),
+                "names": names,
                 "total_bytes": total_bytes,
                 "mbr_bytes": mbr_bytes,
                 "boot1_bytes": boot1_bytes,
                 "boot0_bytes": boot0_bytes,
+                "partial": partial,
             }));
         } else {
             self.clear_line();
             println!(
-                "plan: MBR({mbr_bytes} B) + {partitions} partitions ({} MB total) \
+                "plan: MBR({mbr_bytes} B) + {} partitions ({} MB total) \
                  + BOOT1({boot1_bytes} B) + BOOT0({boot0_bytes} B)",
+                names.len(),
                 total_bytes / (1024 * 1024)
             );
+            if partial {
+                println!("      선택된 파티션만 기록: {}", names.join(", "));
+            }
         }
     }
 

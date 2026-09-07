@@ -1,2 +1,12 @@
 #include "../../Flutter/Flutter-Release.xcconfig"
 #include "Warnings.xcconfig"
+
+// Apple Silicon only. Flutter would happily emit a universal binary, but the
+// bundled aw-tool helper is built by cargo for the host architecture alone —
+// a universal app would launch on an Intel Mac and then fail the moment it ran
+// the helper. Shipping arm64 only keeps the bundle honest (and ~25 MB smaller).
+//
+// To go universal later: install rustup (the Homebrew toolchain carries no
+// x86_64 std), `rustup target add x86_64-apple-darwin`, build both and `lipo
+// -create` them into one helper, then drop this line.
+ARCHS = arm64

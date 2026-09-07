@@ -1,5 +1,7 @@
 # aw-tool
 
+[English](README.en.md)
+
 Allwinner T507/T527 보드를 **macOS에서** 플래싱하는 도구. 벤더 도구인 PhoenixSuit이 Windows 전용이라, FEL/EFEX USB 프로토콜을 직접 구현해 대체한다.
 
 CLI와 GUI 두 가지로 쓸 수 있다. FEL 모드에 들어간 보드에 명령 하나를 실행하면 부트스트랩부터 전체 퓨징, 재부팅까지 끝난다.
@@ -47,7 +49,7 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 
 ## 요구 사항
 
-- macOS (Apple Silicon에서 확인)
+- macOS, Apple Silicon (앱은 arm64 전용)
 - Rust 툴체인 (1.98로 빌드 확인)
 - libusb — `brew install libusb` (배포용 빌드에는 불필요, 아래 참조)
 - GUI를 빌드할 경우 Flutter (3.47.1로 확인)
@@ -193,7 +195,7 @@ defaults write com.europa.awflasher AppleLanguages -array en   # 되돌리기: d
 
 ```bash
 ./scripts/build-app.sh
-# 산출물: gui/build/macos/Build/Products/Release/aw_flasher.app (약 40 MB)
+# 산출물: gui/build/macos/Build/Products/Release/Allwinner Flasher.app (약 37 MB)
 ```
 
 이 스크립트가 하는 일: `--features vendored`로 helper 빌드 → Homebrew 링크가 남았는지 검사 → Flutter 릴리즈 빌드 → helper를 `Contents/Resources/`에 복사 → 재서명. 번들에 파일을 넣으면 Flutter가 만든 서명이 깨지고 macOS가 실행을 거부하므로 재서명이 필요하다.
@@ -206,7 +208,45 @@ cargo build --release && cd gui && flutter run -d macos
 
 **App Sandbox를 끈 상태다** (`macos/Runner/*.entitlements`). 사내 도구 전제이며, 샌드박스 안에서는 USB 접근에 `com.apple.security.device.usb` 엔타이틀먼트가 필요하고 번들된 helper도 샌드박스를 상속한다. 이 때문에 `file_picker`의 사전 검사도 통과하지 못해 `FilePicker.skipEntitlementsChecks()`를 호출한다. App Store 배포로 방향을 바꾸려면 이 세 가지를 함께 되돌려야 한다.
 
+앱은 **Apple Silicon(arm64) 전용**이다. Flutter는 유니버설 바이너리를 만들 수 있지만 번들된 helper는 cargo가 호스트 아키텍처로만 빌드하므로, 유니버설 앱은 Intel 맥에서 실행은 되고 helper를 부르는 순간 실패한다. 아키텍처를 맞춰 두는 편이 정직하다(`gui/macos/Runner/Configs/Release.xcconfig`의 `ARCHS`). 유니버설로 바꾸려면 rustup을 설치하고(Homebrew 툴체인에는 x86_64 std가 없다) `rustup target add x86_64-apple-darwin` 후 두 벌을 `lipo -create`로 합치면 된다.
+
 GUI는 CLI를 **서브프로세스로** 실행한다. FFI로 링크하지 않는 이유는 USB 전송이 실제로 멈출 수 있기 때문이다 — 잘못된 명령이 보드를 `INVALID direction` 상태로 만들고 전송이 타임아웃까지 걸린 적이 있다. 별도 프로세스면 그 hang은 kill로 끝나고, 취소도 프로세스 종료로 처리된다. 검증이 끝난 플래싱 경로를 GUI 작업이 건드리지 않는 이점도 있다.
+
+## 릴리즈
+
+```bash
+./scripts/release.sh v0.1.0             # 빌드 → 패키징 → GitHub 릴리즈 초안
+./scripts/release.sh v0.1.0 --publish   # 초안 대신 바로 공개
+```
+
+`dist/`에 세 개를 만든다.
+
+| 산출물 | 내용 |
+|---|---|
+| `Allwinner-Flasher-<tag>-macos-arm64.zip` | 앱 (약 16 MB) |
+| `aw-tool-<tag>-macos-arm64.tar.gz` | CLI 단독 |
+| `SHA256SUMS` | 체크섬 |
+
+스크립트는 워킹 트리가 깨끗한지 확인하고, helper 아키텍처를 검사하고, 압축을 푼 뒤 서명이 여전히 유효한지 검증한 다음 태그를 밀고 `gh release create`를 부른다.
+
+`zip`이 아니라 `ditto -c -k --keepParent`를 쓴다. `zip(1)`은 번들의 심볼릭 링크와 확장 속성을 보존하지 못해 압축을 풀면 코드 서명이 깨진다.
+
+### Gatekeeper
+
+**이 앱은 Apple Developer ID로 서명·공증되지 않았다(ad-hoc 서명).** 내려받은 상태에서는 Gatekeeper가 실행을 막는다 — 실제로 확인했다:
+
+```
+$ spctl -a -vvv -t exec "Allwinner Flasher.app"
+Allwinner Flasher.app: rejected
+```
+
+받는 쪽에서 첫 실행 전에 한 번 격리 속성을 지워야 한다.
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Allwinner Flasher.app"
+```
+
+제대로 공증하려면 Apple Developer Program(연 $99)에 가입해 Developer ID Application 인증서를 받고, `codesign --options runtime --timestamp`로 서명한 뒤 `notarytool submit --wait`과 `stapler staple`을 거쳐야 한다. 그때는 `build-app.sh`의 ad-hoc 서명(`--sign -`)을 인증서 이름으로 바꾸면 된다.
 
 ## GUI 연동 (`--json`)
 
@@ -293,3 +333,5 @@ EFEX
 | `gui/lib/main.dart` | UI |
 | `gui/lib/l10n/*.arb` | 한국어 · 영어 문자열 (generated 파일은 커밋하지 않음) |
 | `gui/lib/about.dart` | About 대화상자 |
+| `scripts/build-app.sh` | `.app` 빌드 + helper 동봉 + 재서명 |
+| `scripts/release.sh` | 릴리즈 패키징 + GitHub 게시 |

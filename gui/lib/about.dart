@@ -70,6 +70,13 @@ class _AboutDialog extends StatelessWidget {
               '© 2026 jyahn',
               style: theme.textTheme.labelSmall,
             ),
+            const SizedBox(height: 3),
+            // Icons8's free tier is attribution-required, so the credit ships
+            // with the app rather than living only in the README.
+            Text(
+              'App icon by Icons8 (icons8.com)',
+              style: theme.textTheme.labelSmall,
+            ),
           ],
         ),
       ),

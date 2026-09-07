@@ -312,6 +312,10 @@ EFEX
   > 잘못된 주소(예: `sunxi-fel spl`이 가정하는 boot0용 `0x44000`)로 fes1을 올리면 보드가 응답하지 않는다. 전원 재인가로 복구된다.
 - **BOOT0 변종** — `efex-query-storage`로 매체를 확인해 `boot0_sdcard.fex` / `boot0_nand.fex` 선택.
 
+## 크레딧
+
+앱 아이콘: [Icons8](https://icons8.com). 무료 라이선스는 출처 표기를 요구하므로 README와 앱의 About 대화상자 양쪽에 넣었다. 원본은 `assets/icon-source.png`이며, `scripts/make-icon.sh`가 앱 테마 색의 라운드 스퀘어에 올려 아이콘 세트를 만든다.
+
 ## 문서
 
 조사 과정 전체 — 프로토콜 근거(벤더 소스 위치), 실기 로그, 검증 방법, **배제한 가설들** — 은 [`docs/T527-T507-FEL-EFEX-기술조사.md`](docs/T527-T507-FEL-EFEX-기술조사.md)에 있다. 새 SoC 대응이나 이상 동작을 쫓을 때 먼저 볼 것.
@@ -335,3 +339,4 @@ EFEX
 | `gui/lib/about.dart` | About 대화상자 |
 | `scripts/build-app.sh` | `.app` 빌드 + helper 동봉 + 재서명 |
 | `scripts/release.sh` | 릴리즈 패키징 + GitHub 게시 |
+| `scripts/make-icon.sh` | 아이콘 세트 생성 |

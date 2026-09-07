@@ -309,6 +309,10 @@ The pipeline is shared, but these are SoC-specific and have to be re-checked aga
   > Loading fes1 at the wrong address (for instance `0x44000`, the boot0 address `sunxi-fel spl` assumes) leaves the board unresponsive. Power-cycling recovers it.
 - **BOOT0 variant** — check the medium with `efex-query-storage` and pick `boot0_sdcard.fex` or `boot0_nand.fex`.
 
+## Credits
+
+App icon by [Icons8](https://icons8.com). Their free licence requires attribution, so the credit ships in the README and in the app's About dialog. The original is `assets/icon-source.png`; `scripts/make-icon.sh` composites it onto a rounded square in the app's own surface colour and writes the icon set.
+
 ## Documentation
 
 The full investigation — protocol evidence (where in the vendor sources), hardware logs, how things were verified, and **the hypotheses that were ruled out** — is in [`docs/T527-T507-FEL-EFEX-기술조사.md`](docs/T527-T507-FEL-EFEX-기술조사.md) (Korean). Start there when adding a new SoC or chasing odd behaviour.
@@ -332,3 +336,4 @@ The full investigation — protocol evidence (where in the vendor sources), hard
 | `gui/lib/about.dart` | About dialog |
 | `scripts/build-app.sh` | Build the `.app`, bundle the helper, re-sign |
 | `scripts/release.sh` | Package a release and publish it |
+| `scripts/make-icon.sh` | Build the app icon set |

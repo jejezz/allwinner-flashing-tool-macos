@@ -178,12 +178,7 @@ class _Header extends StatelessWidget {
 
     return Row(
       children: [
-        const IconBadge(
-          icon: Icons.memory,
-          color: AppColors.accent,
-          active: true,
-          size: 44,
-        ),
+        const AppMark(size: 44),
         const SizedBox(width: 14),
         Expanded(
           child: Column(

@@ -34,12 +34,7 @@ class _AboutDialog extends StatelessWidget {
           children: [
             Row(
               children: [
-                const IconBadge(
-                  icon: Icons.memory,
-                  color: AppColors.accent,
-                  active: true,
-                  size: 44,
-                ),
+                const AppMark(size: 44),
                 const SizedBox(width: 14),
                 // Flexible, not fixed: the subtitle line is longer in some
                 // languages, and the dialog is narrower than the window.

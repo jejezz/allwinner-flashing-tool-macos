@@ -64,6 +64,9 @@ flutter:
   # Generates AppLocalizations from lib/l10n/*.arb (see l10n.yaml).
   generate: true
 
+  assets:
+    - assets/phoenix.png
+
   # Shared with the Saturn client so the tools look like one family.
   fonts:
     - family: SeoulNamsan

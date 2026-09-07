@@ -84,6 +84,42 @@ class GlassCard extends StatelessWidget {
   }
 }
 
+/// The product mark: the phoenix on the same dark plate as the `.app` icon, so
+/// the window and the Dock read as one thing. The plate is drawn rather than
+/// baked into the asset, which keeps its corners crisp at any size and lets it
+/// share the palette with the rest of the UI.
+class AppMark extends StatelessWidget {
+  const AppMark({super.key, this.size = 44});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        // Apple's icon-grid corner radius, as a fraction of the tile.
+        borderRadius: BorderRadius.circular(size * 0.2237),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1F2A38), AppColors.bg],
+        ),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Padding(
+        // Matches the margin the glyph has inside the .app icon.
+        padding: EdgeInsets.all(size * 0.14),
+        child: Image.asset(
+          'assets/phoenix.png',
+          filterQuality: FilterQuality.medium,
+        ),
+      ),
+    );
+  }
+}
+
 /// Rounded square icon badge.
 class IconBadge extends StatelessWidget {
   const IconBadge({

@@ -2,7 +2,7 @@
 
 [한국어](README.md)
 
-Flashes Allwinner T507/T527 boards **from macOS**. The vendor tool, PhoenixSuit, is Windows-only, so this implements the FEL/EFEX USB protocol directly.
+Flashes Allwinner T507/T527 boards. Runs on macOS, Windows, and Linux — an open-source alternative to the vendor tool, PhoenixSuit, implementing the FEL/EFEX USB protocol directly.
 
 There is a CLI and a GUI. Point either at a board sitting in FEL mode and one command carries it from bootstrap through the full fusing pass to reboot.
 
@@ -13,7 +13,7 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 | | |
 |---|---|
 | `aw-tool` (Rust) | The CLI. The whole protocol implementation lives here |
-| `gui/` (Flutter) | macOS app. Runs the CLI as a subprocess and shows progress |
+| `gui/` (Flutter) | Desktop app (macOS / Windows / Linux). Runs the CLI as a subprocess and shows progress |
 
 <img src="docs/images/gui-en.png" width="620" alt="Allwinner Flasher main window">
 
@@ -21,7 +21,7 @@ The app follows the system language; Korean and English are supported.
 
 ## Status
 
-**CLI**
+**CLI** (the protocol itself is OS-agnostic; the hardware verification below was done from a macOS host)
 
 | Item | Status |
 |---|---|
@@ -34,42 +34,94 @@ The app follows the system language; Korean and English are supported.
 
 **GUI**
 
-| Item | Status |
-|---|---|
-| Builds, runs, uses the bundled helper | Confirmed (release `.app`, zero Homebrew links) |
-| Full T527 flash through the GUI | Verified on hardware (2026-09-07) |
-| Device detection · image selection · progress · completion screens | Exercised by the flash above |
-| Failure screen | **Unverified on hardware** |
-| Stop button | **Unverified on hardware** |
-| Per-partition selection (checkboxes / `--skip`) | **Unverified on hardware** — the CLI filtering and its guards were checked offline against a real image |
+| Item | macOS | Windows | Linux |
+|---|---|---|---|
+| Builds, runs, uses the bundled helper | Confirmed (release `.app`, zero Homebrew links) | Confirmed (release build, vendored libusb linked statically) | Not attempted — only the platform scaffold has been generated |
+| CLI detects a FEL device (`fel-version`) | Verified on hardware | Verified on hardware (2026-09-19, after binding WinUSB — no admin rights needed) | **Unverified** |
+| Full flash through the GUI on real hardware | Verified on hardware (2026-09-07) | **Unverified** — CLI detection confirmed, `flash-all` not yet tried | **Unverified** |
+| GUI device detection · image selection · progress · completion screens | Exercised by the flash above | Unverified | Unverified |
+| Failure screen · stop button · per-partition selection | Unverified on hardware | Unverified | Unverified |
 
-Everything still unverified needs that situation to actually occur (a cancel, a failure, a selective write). On the selection feature, the CLI side was checked against the real wallpad image: 12 partitions filtered down to 10, plus all three rejection cases (combined with a full format, a misspelled name, `--only` and `--skip` together).
+Everything still unverified needs that situation to actually occur (a cancel, a failure, a selective write). On the selection feature, the CLI side was checked against the real wallpad image: 12 partitions filtered down to 10, plus all three rejection cases (combined with a full format, a misspelled name, `--only` and `--skip` together) — this part is OS-agnostic.
 
 ## Requirements
 
-- macOS, Apple Silicon (the app is arm64-only)
-- Rust toolchain (built with 1.98)
-- libusb — `brew install libusb` (not needed for distributable builds, see below)
-- Flutter for the GUI (checked with 3.47.1)
+**All platforms**
 
-No `sudo` is needed for USB access.
+- Rust toolchain (built with 1.98)
+- Flutter for the GUI (checked with 3.47)
+
+**macOS**
+
+- Apple Silicon (the GUI app is arm64-only, see "GUI" below)
+- libusb — `brew install libusb` (not needed for distributable builds, see "Build" below)
+
+**Windows**
+
+- Visual Studio Build Tools' "Desktop development with C++" workload (provides the `cl.exe` needed by both the Rust MSVC target and libusb's source build)
+- **Mandatory:** bind the board's FEL/EFEX USB interface to the **WinUSB** driver with [Zadig](https://zadig.akeo.ie/) (see "USB driver" below). The device can look perfectly normal in Device Manager and `aw-tool` will still fail to find it at all without this — confirmed on real hardware, not a maybe.
+
+**Linux**
+
+- libusb1 development headers and build tools (`build-essential`, `libusb-1.0-0-dev`, etc.) — *building on Linux has not been verified in this repo yet*
+- A udev rule for USB access without root (see "USB driver" below)
+
+With the driver/rule in place, no `sudo` is needed for USB access.
 
 ## Build
 
 ```bash
 cargo build --release
-# output: target/release/aw-tool
+# output: target/release/aw-tool        (Windows: target\release\aw-tool.exe)
 ```
 
-A binary you ship to another machine (bundled into the GUI `.app`, say) has to link libusb statically. The default build links Homebrew's `libusb-1.0.0.dylib`, which is absent on most machines and makes every command fail at launch.
+A binary you ship to another machine (bundled into the GUI app, say) has to link libusb statically.
+
+- **macOS** — the default build links Homebrew's `libusb-1.0.0.dylib`, which is absent on most machines and makes every command fail at launch.
+- **Linux** — the default build is expected to link the distribution's libusb dynamically (unverified).
+- **Windows** — there is no standard system location for libusb, so `libusb1-sys` falls back to building it from source whenever it can't find one through vcpkg. On the machine this was built on (no vcpkg configured), even the plain build above came out statically linked. That can vary by machine, though, so a distributable build should always say so explicitly:
 
 ```bash
 cargo build --release --features vendored
 ```
 
-`vendored` builds libusb from source alongside. The resulting binary links only macOS system frameworks (CoreFoundation, IOKit, Security, libSystem, libiconv).
+`vendored` builds libusb from source alongside and links it statically. The macOS result links only system frameworks (CoreFoundation, IOKit, Security, libSystem, libiconv); the Windows result links only the MSVC runtime.
+
+## USB driver
+
+Both FEL and EFEX mode use VID:PID `1f3a:efe8`.
+
+**macOS** — no setup needed.
+
+**Windows — mandatory, not optional.** The board can show up **looking completely fine** in Device Manager, under "Universal Serial Bus controllers" as `USB Device (VID_1f3a&PID_efe8)`, and libusb will still be unable to open it at all if what's bound is the Microsoft default driver. Running a command against it then gives:
+
+```
+> aw-tool.exe fel-version
+Error: Allwinner USB FEL device (1f3a:efe8) not found
+```
+
+That exact error means this, every time. The fix:
+
+1. Keep the board connected in FEL (or EFEX) mode.
+2. Run [Zadig](https://zadig.akeo.ie/) (no admin rights needed — confirmed on real hardware).
+3. Turn on **Options → List All Devices**. Without it, a device that already has a driver bound (the default one, in this case) won't show up in the list.
+4. Find the device by VID `1f3a` / PID `efe8`, set the target driver to **WinUSB**, and click **Replace Driver**.
+5. Check Device Manager again — the device should have moved under "Universal Serial Bus devices".
+
+Once bound, it's recognised automatically after that, including across reboots. No need to redo it unless the board re-enumerates under a different VID/PID.
+
+**Linux** — a udev rule grants access without root.
+
+```bash
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="1f3a", ATTR{idProduct}=="efe8", MODE="0666"' | sudo tee /etc/udev/rules.d/99-allwinner.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+Without the rule, the tool needs `sudo`.
 
 ## Usage
+
+(The commands below are shown as `aw-tool`. In Windows PowerShell that's `.\aw-tool.exe`.)
 
 ### 1. Put the board in FEL mode
 
@@ -180,15 +232,30 @@ MBR / BOOT0 / BOOT1 are always written regardless of the selection. They belong 
 
 ## GUI
 
-The Flutter macOS app in `gui/`. Pick an image and it previews the partition table; it detects the board and enables the flash button, then shows progress and a log.
+The Flutter desktop app in `gui/` (macOS / Windows / Linux). Pick an image and it previews the partition table; it detects the board and enables the flash button, then shows progress and a log.
 
-The interface language follows the system setting, in Korean and English. To run just this app in another language:
-
-```bash
-defaults write com.europa.awflasher AppleLanguages -array en   # undo: defaults delete ...
-```
+The interface language follows the system setting by default, but only Korean and English actually exist — Korean if the system is Korean, English for everything else, which is why the menu item is labelled "Automatic" rather than "System language" (it doesn't really track arbitrary system locales). The globe icon in the header can also force it — "Automatic" / "한국어" / "English" — and the choice sticks across launches (saved to a per-OS settings folder; a single file, so it's hand-rolled rather than pulling in a package for it). Works the same on all three platforms.
 
 **Turning off Full format puts checkboxes on the partition list.** Unchecked partitions are left as they are (see "Writing selected partitions"). In full-format mode the checkboxes are locked and everything is written — a format wipes it all anyway. The confirmation dialog spells out the partitions being kept, so it can be checked before committing.
+
+The GUI runs the CLI **as a subprocess** rather than linking it. USB transfers here really can wedge — a bad command once left a board printing `INVALID direction` with the transfer stuck until timeout. A separate process means that hangs something we can kill, and cancelling is just killing it. It also keeps GUI work away from the hardware-verified flashing path.
+
+### Opening in Android Studio
+
+This repo's `pubspec.yaml` lives in `gui/`, not the repo root. For Android Studio's Flutter plugin to recognise the project, **open the `gui/` folder itself** (`File > Open` → select `gui/`). Opening the repo root will not be recognised as a Flutter project.
+
+1. Make sure the Flutter/Dart plugin is installed, and set the Flutter SDK path under `Settings > Languages & Frameworks > Flutter`.
+2. Opening `gui/` auto-creates a "main.dart" run/debug configuration from `lib/main.dart`.
+3. In the device dropdown, pick **"macOS (desktop)"** / **"Windows (desktop)"** / **"Linux (desktop)"** — there is no `android/` or `ios/` folder, so pick a desktop target rather than an emulator.
+4. The GUI looks for `target/release/aw-tool` (`aw-tool.exe` on Windows) inside the checkout on its own (`locate()` in `gui/lib/aw_tool.dart`), so build it once from a terminal before running from Android Studio.
+
+   ```bash
+   cargo build --release --features vendored
+   ```
+
+   To automate that, add a "Before launch" step: create an External Tool under `Settings > Tools > External Tools` (Program `cargo`, Arguments `build --release --features vendored`, Working directory `$ProjectFileDir$/..`), then add "Run External tool" to the configuration's Before launch list under `Run > Edit Configurations`.
+
+### macOS
 
 ```bash
 ./scripts/build-app.sh
@@ -207,9 +274,42 @@ cargo build --release && cd gui && flutter run -d macos
 
 The app is **Apple Silicon (arm64) only**. Flutter would happily emit a universal binary, but cargo builds the bundled helper for the host architecture alone, so a universal app would launch on an Intel Mac and fail the moment it ran the helper. Matching the architectures keeps the bundle honest (`ARCHS` in `gui/macos/Runner/Configs/Release.xcconfig`). To go universal: install rustup (the Homebrew toolchain carries no x86_64 std), `rustup target add x86_64-apple-darwin`, and `lipo -create` the two helpers together.
 
-The GUI runs the CLI **as a subprocess** rather than linking it. USB transfers here really can wedge — a bad command once left a board printing `INVALID direction` with the transfer stuck until timeout. A separate process means that hangs something we can kill, and cancelling is just killing it. It also keeps GUI work away from the hardware-verified flashing path.
+### Windows
+
+```powershell
+.\scripts\build-app-windows.ps1
+# output: gui\build\windows\x64\runner\Release\aw_flasher.exe (aw-tool.exe sits next to it)
+```
+
+What the script does: build the helper with `--features vendored`, build the Flutter release, copy the helper (`aw-tool.exe`) into the same folder as the app executable. Unlike macOS there is no bundle structure or code signature to preserve, so there is no re-signing step.
+
+During development the app finds `target\release\aw-tool.exe` in the checkout on its own:
+
+```powershell
+cargo build --release
+cd gui
+flutter run -d windows
+```
+
+**There is no code signature.** Windows SmartScreen may show a "Windows protected your PC" warning on first launch — "More info → Run anyway" gets past it. Same reason as macOS's Gatekeeper (no publisher signature).
+
+**Real hardware needs the WinUSB driver bound first** — see "USB driver" above.
+
+### Linux
+
+*Building and running on Linux has not been verified in this repo yet.* The platform scaffold (`gui/linux/`) has been generated, so in principle:
+
+```bash
+cargo build --release --features vendored
+cd gui && flutter build linux --release
+cp ../target/release/aw-tool build/linux/x64/release/bundle/aw-tool
+```
+
+(The exact bundle path may vary with the Flutter/CMake version.)
 
 ## Releasing
+
+Packaging and GitHub release automation exist for macOS only. Windows has `scripts/build-app-windows.ps1` for the build step, but nothing yet for archiving, checksums, or publishing a GitHub release — zip up `gui/build/windows/x64/runner/Release/` by hand if you need to distribute a build.
 
 ```bash
 ./scripts/release.sh v0.1.0             # build → package → draft GitHub release
@@ -311,7 +411,7 @@ The pipeline is shared, but these are SoC-specific and have to be re-checked aga
 
 ## Credits
 
-App icon by [Icons8](https://icons8.com). Their free licence requires attribution, so the credit ships in the README and in the app's About dialog. The original is `assets/icon-source.png`; `scripts/make-icon.sh` composites it onto a rounded square in the app's own surface colour and writes the icon set.
+App icon by [Icons8](https://icons8.com). Their free licence requires attribution, so the credit ships in the README and in the app's About dialog. The original is `assets/icon-source.png`; `scripts/make-icon.sh` composites it onto a rounded square in the app's own surface colour and writes the macOS icon set. macOS insets that twice — a margin around the whole plate (room for the Dock's own rounding/shadow) and then the glyph resized down again within the plate — and neither convention applies on Windows/Linux, where a dark plate is also nearly invisible against a dark taskbar, so reusing the macOS result left the glyph looking too small. `scripts/make-icon-win-linux.py` instead composites independently from the same source glyph, filling 92% of the canvas. It only needs Pillow, no ImageMagick.
 
 ## Documentation
 
@@ -334,6 +434,10 @@ The full investigation — protocol evidence (where in the vendor sources), hard
 | `gui/lib/main.dart` | UI |
 | `gui/lib/l10n/*.arb` | Korean and English strings (generated files are not committed) |
 | `gui/lib/about.dart` | About dialog |
-| `scripts/build-app.sh` | Build the `.app`, bundle the helper, re-sign |
-| `scripts/release.sh` | Package a release and publish it |
-| `scripts/make-icon.sh` | Build the app icon set |
+| `gui/lib/troubleshoot.dart` | Windows USB driver troubleshooting dialog |
+| `gui/lib/language_setting.dart` | Saves/loads the manually picked language |
+| `scripts/build-app.sh` | Build the macOS `.app`, bundle the helper, re-sign |
+| `scripts/build-app-windows.ps1` | Build for Windows, bundle the helper (`aw-tool.exe`) |
+| `scripts/release.sh` | Package a macOS release and publish it |
+| `scripts/make-icon.sh` | Build the macOS app icon set |
+| `scripts/make-icon-win-linux.py` | Composites Windows `.ico` / Linux `.png` independently from the same source glyph (much less margin than macOS) |

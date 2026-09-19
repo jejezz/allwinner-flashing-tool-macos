@@ -13,22 +13,25 @@ class AwTool {
 
   final String executable;
 
-  /// Find the helper binary: bundled inside the .app for a release build,
-  /// otherwise the cargo build output of the enclosing checkout so the app can
-  /// be run straight from `flutter run`.
+  /// Find the helper binary: bundled inside the release build, otherwise the
+  /// cargo build output of the enclosing checkout so the app can be run
+  /// straight from `flutter run`.
   static AwTool locate() {
+    final exeName = Platform.isWindows ? 'aw-tool.exe' : 'aw-tool';
     final exeDir = File(Platform.resolvedExecutable).parent;
 
-    // Release: Contents/MacOS/aw_flasher -> Contents/Resources/aw-tool
-    final bundled = File(
-      '${exeDir.parent.path}/Resources/aw-tool',
-    );
+    // Release, macOS: Contents/MacOS/aw_flasher -> Contents/Resources/aw-tool
+    // Release, Windows/Linux: the helper sits next to the app executable —
+    // there is no bundle structure splitting code from resources.
+    final bundled = Platform.isMacOS
+        ? File('${exeDir.parent.path}/Resources/$exeName')
+        : File('${exeDir.path}/$exeName');
     if (bundled.existsSync()) return AwTool(bundled.path);
 
     // Development: walk up looking for the cargo target dir.
     for (var dir = exeDir; dir.parent.path != dir.path; dir = dir.parent) {
       for (final profile in ['release', 'debug']) {
-        final candidate = File('${dir.path}/target/$profile/aw-tool');
+        final candidate = File('${dir.path}/target/$profile/$exeName');
         if (candidate.existsSync()) return AwTool(candidate.path);
       }
     }

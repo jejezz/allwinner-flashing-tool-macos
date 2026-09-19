@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -5,7 +7,9 @@ import 'about.dart';
 import 'aw_tool.dart';
 import 'flasher_model.dart';
 import 'l10n/app_localizations.dart';
+import 'language_setting.dart';
 import 'theme.dart';
+import 'troubleshoot.dart';
 import 'widgets.dart';
 
 void main() {
@@ -17,8 +21,22 @@ void main() {
   runApp(const FlasherApp());
 }
 
-class FlasherApp extends StatelessWidget {
+class FlasherApp extends StatefulWidget {
   const FlasherApp({super.key});
+
+  @override
+  State<FlasherApp> createState() => _FlasherAppState();
+}
+
+class _FlasherAppState extends State<FlasherApp> {
+  // Null means "follow the system language", the default until the user
+  // picks one from the header button.
+  String? _languageCode = LanguageSetting.load();
+
+  void _setLanguage(String? code) {
+    setState(() => _languageCode = code);
+    LanguageSetting.save(code);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,18 +45,30 @@ class FlasherApp extends StatelessWidget {
       // ARB files.
       title: 'Allwinner Flasher',
       debugShowCheckedModeBanner: false,
+      locale: _languageCode == null ? null : Locale(_languageCode!),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
-      home: const HomePage(),
+      home: HomePage(
+        languageCode: _languageCode,
+        onLanguageChanged: _setLanguage,
+      ),
     );
   }
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({
+    super.key,
+    required this.languageCode,
+    required this.onLanguageChanged,
+  });
+
+  /// Currently active manual override, or null while following the system.
+  final String? languageCode;
+  final ValueChanged<String?> onLanguageChanged;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -110,7 +140,11 @@ class _HomePageState extends State<HomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _Header(model: model),
+                      _Header(
+                        model: model,
+                        languageCode: widget.languageCode,
+                        onLanguageChanged: widget.onLanguageChanged,
+                      ),
                       const SizedBox(height: 18),
                       Expanded(
                         child: Row(
@@ -160,10 +194,23 @@ String deviceShortLabel(AppLocalizations l10n, DeviceStatus d) =>
       DeviceState.none => l10n.deviceShortNone,
     };
 
+/// Menu value standing in for "no manual override" in the language picker —
+/// see the comment at its use site for why this can't just be null.
+const _kSystemLanguage = 'system';
+
 class _Header extends StatelessWidget {
-  const _Header({required this.model});
+  const _Header({
+    required this.model,
+    required this.languageCode,
+    required this.onLanguageChanged,
+  });
 
   final FlasherModel model;
+
+  /// Currently active manual language override, or null while following the
+  /// system language.
+  final String? languageCode;
+  final ValueChanged<String?> onLanguageChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -197,6 +244,51 @@ class _Header extends StatelessWidget {
           pulsing: !device.connected,
         ),
         const SizedBox(width: 10),
+        // Language names are shown in themselves (한국어, not "Korean" or
+        // its English-locale translation), the way a language picker
+        // conventionally does — so it stays findable even by someone who
+        // can't read whichever language the app currently happens to be in.
+        //
+        // The menu's value type is String, not String? — PopupMenuButton
+        // can't tell "picked the item valued null" apart from "dismissed
+        // the menu without picking anything" (both arrive as null from
+        // showMenu), so a null-valued item silently never fires onSelected.
+        // _kSystemLanguage stands in for "no override" instead.
+        PopupMenuButton<String>(
+          tooltip: l10n.languageTooltip,
+          icon: const Icon(Icons.language, size: 20),
+          onSelected: (value) => onLanguageChanged(
+            value == _kSystemLanguage ? null : value,
+          ),
+          itemBuilder: (context) => [
+            CheckedPopupMenuItem(
+              value: _kSystemLanguage,
+              checked: languageCode == null,
+              child: Text(l10n.languageSystem),
+            ),
+            const PopupMenuDivider(),
+            CheckedPopupMenuItem(
+              value: 'ko',
+              checked: languageCode == 'ko',
+              child: const Text('한국어'),
+            ),
+            CheckedPopupMenuItem(
+              value: 'en',
+              checked: languageCode == 'en',
+              child: const Text('English'),
+            ),
+          ],
+        ),
+        // WinUSB driver binding trips up almost everyone the first time on
+        // Windows — the board looks fine in Device Manager and the app still
+        // can't see it — so the fix is one click away here, not just in the
+        // README. Not relevant on macOS/Linux, which need no driver step.
+        if (Platform.isWindows)
+          IconButton(
+            tooltip: l10n.troubleshootTooltip,
+            icon: const Icon(Icons.troubleshoot, size: 20),
+            onPressed: () => showTroubleshootSheet(context),
+          ),
         IconButton(
           tooltip: l10n.aboutTooltip,
           icon: const Icon(Icons.info_outline, size: 20),

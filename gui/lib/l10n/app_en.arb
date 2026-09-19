@@ -90,8 +90,21 @@
   "toolMissingTitle": "Helper not found",
   "toolMissingBody": "Could not find the aw-tool executable.\nIf you are working in the checkout, run `cargo build --release` first.",
 
+  "languageTooltip": "Language",
+  "languageSystem": "Automatic",
+
   "aboutTooltip": "About",
-  "aboutDescription": "Flashes Allwinner T507 / T527 boards from macOS over the FEL/EFEX USB protocol — a replacement for the Windows-only PhoenixSuit.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written.",
+  "aboutDescription": "Flashes Allwinner T507 / T527 boards over the FEL/EFEX USB protocol — an open-source alternative to PhoenixSuit.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written.",
+
+  "troubleshootTooltip": "Troubleshoot",
+  "troubleshootTitle": "Board not detected on Windows?",
+  "troubleshootIntro": "The board can look completely normal in Device Manager and still be invisible to this app. That happens when the Microsoft default driver is bound instead of WinUSB — libusb can't open the device at all in that case. Running a command against it looks like this:",
+  "troubleshootStep1": "Keep the board connected in FEL (or EFEX) mode.",
+  "troubleshootStep2": "Run Zadig (zadig.akeo.ie) — no admin rights needed.",
+  "troubleshootStep3": "Turn on Options → List All Devices. Without it, a device that already has a driver bound won't show up in the list.",
+  "troubleshootStep4": "Find the device by VID 1f3a / PID efe8, set the driver to WinUSB, and click Replace Driver.",
+  "troubleshootStep5": "Check Device Manager again — it should now be listed under \"Universal Serial Bus devices\".",
+  "troubleshootNote": "Once bound, it's recognised automatically after that, including across reboots.",
 
   "planLine": "Plan: {count} partitions, {megabytes} MB",
   "@planLine": {

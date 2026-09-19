@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-Allwinner T507/T527 보드를 **macOS에서** 플래싱하는 도구. 벤더 도구인 PhoenixSuit이 Windows 전용이라, FEL/EFEX USB 프로토콜을 직접 구현해 대체한다.
+Allwinner T507/T527 보드를 플래싱하는 도구. macOS · Windows · Linux에서 동작하며, 벤더 도구인 PhoenixSuit을 대체하는 오픈소스 구현이다. FEL/EFEX USB 프로토콜을 직접 구현했다.
 
 CLI와 GUI 두 가지로 쓸 수 있다. FEL 모드에 들어간 보드에 명령 하나를 실행하면 부트스트랩부터 전체 퓨징, 재부팅까지 끝난다.
 
@@ -13,7 +13,7 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 | | |
 |---|---|
 | `aw-tool` (Rust) | CLI. 프로토콜 구현 전체가 여기 있다 |
-| `gui/` (Flutter) | macOS 앱. CLI를 서브프로세스로 실행하고 진행률을 표시한다 |
+| `gui/` (Flutter) | 데스크톱 앱 (macOS / Windows / Linux). CLI를 서브프로세스로 실행하고 진행률을 표시한다 |
 
 <img src="docs/images/gui-ko.png" width="620" alt="Allwinner Flasher 메인 화면">
 
@@ -23,7 +23,7 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 
 ## 상태
 
-**CLI**
+**CLI** (프로토콜 자체는 OS와 무관하다. 아래 실기 검증은 macOS 호스트에서 진행했다)
 
 | 항목 | 상태 |
 |---|---|
@@ -36,42 +36,94 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 
 **GUI**
 
-| 항목 | 상태 |
-|---|---|
-| 빌드 · 실행 · 번들된 helper 사용 | 확인 (릴리즈 `.app`, Homebrew 링크 0) |
-| GUI로 T527 전체 플래싱 성공 | 실기 검증 완료 (2026-09-07) |
-| 장치 감지 · 이미지 선택 · 진행률 · 완료 화면 | 위 플래싱 과정에서 확인 |
-| 실패 화면 | **실기 미검증** |
-| 중단 버튼 | **실기 미검증** |
-| 파티션 골라 쓰기 (체크박스 / `--skip`) | **실기 미검증** — CLI 필터링과 가드는 실제 이미지로 오프라인 확인 |
+| 항목 | macOS | Windows | Linux |
+|---|---|---|---|
+| 빌드 · 실행 · 번들된 helper 사용 | 확인 (릴리즈 `.app`, Homebrew 링크 0) | 확인 (릴리즈 빌드, vendored libusb 정적 링크) | 미확인 — 플랫폼 스캐폴딩만 생성됨, 빌드 미시도 |
+| CLI로 FEL 장치 인식 (`fel-version`) | 실기 검증 완료 | 실기 검증 완료 (2026-09-19, WinUSB 바인딩 후 — 관리자 권한 불필요) | **미검증** |
+| 실기 보드로 전체 플래싱 | 실기 검증 완료 (2026-09-07) | **미검증** — CLI 인식까지는 확인, `flash-all`은 아직 | **미검증** |
+| GUI 장치 감지 · 이미지 선택 · 진행률 · 완료 화면 | 위 플래싱 과정에서 확인 | 미검증 | 미검증 |
+| 실패 화면 · 중단 버튼 · 파티션 골라 쓰기 | 실기 미검증 | 미검증 | 미검증 |
 
-미검증 항목은 모두 실제로 그 상황을 만들어야 도달한다(중단, 실패, 선택 기록). 선택 기능의 CLI 쪽은 실제 wallpad 이미지로 파티션 12개 → 10개 필터링과 세 가지 거부 조건(전체 포맷과 병용, 이름 오타, `--only`/`--skip` 동시 사용)을 확인했다.
+미검증 항목은 모두 실제로 그 상황을 만들어야 도달한다(중단, 실패, 선택 기록). 선택 기능의 CLI 쪽은 실제 wallpad 이미지로 파티션 12개 → 10개 필터링과 세 가지 거부 조건(전체 포맷과 병용, 이름 오타, `--only`/`--skip` 동시 사용)을 확인했다 — 이 부분은 OS와 무관하다.
 
 ## 요구 사항
 
-- macOS, Apple Silicon (앱은 arm64 전용)
-- Rust 툴체인 (1.98로 빌드 확인)
-- libusb — `brew install libusb` (배포용 빌드에는 불필요, 아래 참조)
-- GUI를 빌드할 경우 Flutter (3.47.1로 확인)
+**공통**
 
-USB 접근에 `sudo`는 필요 없다.
+- Rust 툴체인 (1.98로 빌드 확인)
+- GUI를 빌드할 경우 Flutter (3.47로 확인)
+
+**macOS**
+
+- Apple Silicon (GUI 앱은 arm64 전용, 아래 "GUI" 참조)
+- libusb — `brew install libusb` (배포용 빌드에는 불필요, 아래 "빌드" 참조)
+
+**Windows**
+
+- Visual Studio Build Tools의 "C++를 사용한 데스크톱 개발" 워크로드 (Rust MSVC 타겟과 libusb 소스 빌드에 필요한 `cl.exe`를 제공한다)
+- **반드시** [Zadig](https://zadig.akeo.ie/)로 보드의 FEL/EFEX USB 인터페이스를 **WinUSB** 드라이버로 바인딩해야 한다 (아래 "USB 드라이버" 참조). 장치 관리자에 장치가 정상으로 보여도, 이 바인딩 없이는 `aw-tool`이 장치를 아예 찾지 못한다 — 실기로 확인된 필수 단계다.
+
+**Linux**
+
+- libusb1 개발 헤더와 빌드 도구 (`build-essential`, `libusb-1.0-0-dev` 등) — *이 저장소에서 실기 빌드는 아직 검증되지 않았다*
+- USB 접근 권한을 위한 udev 규칙 (아래 "USB 드라이버" 참조)
+
+드라이버/규칙이 갖춰지면 USB 접근에 `sudo`는 필요 없다.
 
 ## 빌드
 
 ```bash
 cargo build --release
-# 산출물: target/release/aw-tool
+# 산출물: target/release/aw-tool        (Windows: target\release\aw-tool.exe)
 ```
 
-다른 맥으로 배포할 바이너리(예: GUI `.app` 번들에 동봉)는 libusb를 정적 링크해야 합니다. 기본 빌드는 Homebrew의 `libusb-1.0.0.dylib`을 동적 링크하므로 libusb가 없는 머신에서 실행되지 않습니다.
+다른 머신에 배포할 바이너리(예: GUI 앱에 동봉)는 libusb를 정적 링크해야 합니다.
+
+- **macOS** — 기본 빌드는 Homebrew의 `libusb-1.0.0.dylib`을 동적 링크하므로, libusb가 없는 머신에서 실행되지 않습니다.
+- **Linux** — 기본 빌드는 배포판의 libusb를 동적 링크할 것으로 예상됩니다 (미검증).
+- **Windows** — 시스템 표준 위치에 libusb가 없어서, `libusb1-sys`가 vcpkg로 찾지 못하면 소스 빌드로 자동 폴백합니다. 이 저장소를 빌드한 환경(vcpkg 미설정)에서는 플래그 없이도 정적 링크된 바이너리가 나왔습니다. 다만 머신마다 달라질 수 있으니 배포용은 항상 아래처럼 명시적으로 지정합니다.
 
 ```bash
 cargo build --release --features vendored
 ```
 
-`vendored`는 libusb를 소스에서 함께 빌드합니다. 결과 바이너리는 macOS 시스템 프레임워크(CoreFoundation, IOKit, Security, libSystem, libiconv)만 링크합니다.
+`vendored`는 libusb를 소스에서 함께 빌드해 정적으로 링크합니다. macOS 결과물은 시스템 프레임워크(CoreFoundation, IOKit, Security, libSystem, libiconv)만, Windows 결과물은 MSVC 런타임만 링크합니다.
+
+## USB 드라이버
+
+FEL과 EFEX 모드 모두 VID:PID `1f3a:efe8`를 쓴다.
+
+**macOS** — 별도 드라이버 설정이 필요 없다.
+
+**Windows — 반드시 필요, 건너뛸 수 없다.** 장치 관리자에 보드가 "범용 직렬 버스 컨트롤러" 아래 `USB Device(VID_1f3a&PID_efe8)`처럼 **정상으로 인식된 것처럼 보여도**, 붙어있는 게 Microsoft 기본 드라이버라면 libusb는 그 장치를 열거조차 못 한다. 그 상태에서 실행하면:
+
+```
+> aw-tool.exe fel-version
+Error: Allwinner USB FEL device (1f3a:efe8) not found
+```
+
+이 에러가 나면 100% 이 문제다. 고치는 법:
+
+1. 보드를 FEL(또는 EFEX) 모드로 연결한 상태를 유지한다.
+2. [Zadig](https://zadig.akeo.ie/)를 실행한다 (관리자 권한 불필요 — 실기로 확인).
+3. **Options → List All Devices**를 켠다. 켜지 않으면 이미 기본 드라이버가 붙은 장치는 목록에 안 보인다.
+4. VID `1f3a` / PID `efe8`에 해당하는 장치를 찾아 오른쪽 드라이버를 **WinUSB**로 지정하고 **Replace Driver**를 누른다.
+5. 장치 관리자에서 해당 장치가 "범용 직렬 버스 장치(Universal Serial Bus devices)" 아래로 옮겨갔는지 확인한다.
+
+한 번 바인딩하면 이후에는 재부팅해도 자동으로 인식된다. 보드를 재플래싱해서 다른 VID/PID로 재열거되는 경우가 아니라면 다시 할 필요는 없다.
+
+**Linux** — udev 규칙으로 일반 사용자 권한을 허용한다.
+
+```bash
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="1f3a", ATTR{idProduct}=="efe8", MODE="0666"' | sudo tee /etc/udev/rules.d/99-allwinner.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+규칙을 추가하지 않으면 `sudo`로 실행해야 한다.
 
 ## 사용법
+
+(아래 명령 예시는 `aw-tool`로 표기한다. Windows PowerShell에서는 `.\aw-tool.exe`.)
 
 ### 1. 보드를 FEL 모드로
 
@@ -183,15 +235,30 @@ MBR / BOOT0 / BOOT1은 선택과 무관하게 항상 기록된다. 사용자 데
 
 ## GUI
 
-`gui/`의 Flutter macOS 앱. 이미지를 고르면 파티션 목록을 미리 보여주고, 보드 연결을 감지해 플래싱 버튼을 활성화하며, 진행률과 로그를 표시한다.
+`gui/`의 Flutter 데스크톱 앱 (macOS / Windows / Linux). 이미지를 고르면 파티션 목록을 미리 보여주고, 보드 연결을 감지해 플래싱 버튼을 활성화하며, 진행률과 로그를 표시한다.
 
-화면 언어는 시스템 설정을 따르며 한국어와 영어를 지원한다. 한 앱만 다른 언어로 띄워 확인하려면:
-
-```bash
-defaults write com.europa.awflasher AppleLanguages -array en   # 되돌리기: defaults delete ...
-```
+화면 언어는 기본적으로 시스템 설정을 따르며 한국어와 영어만 지원한다 — 시스템 언어가 한국어면 한국어, 그 외에는 영어로 뜬다 (임의의 언어를 다 지원하는 게 아니라서 메뉴 항목 이름도 "시스템 언어"가 아니라 "자동"이다). 헤더의 지구본 아이콘으로 "자동" / "한국어" / "English" 중 직접 골라 강제할 수도 있다 — 선택한 값은 다음 실행에도 유지된다 (OS/앱별 설정 폴더에 저장; 파일 하나뿐이라 별도 패키지 없이 직접 구현했다). 세 플랫폼 모두 동일하게 동작한다.
 
 **전체 포맷을 끄면 파티션 목록에 체크박스가 생긴다.** 체크를 해제한 파티션은 그대로 남는다(위 "파티션 골라 쓰기" 참조). 전체 포맷 모드에서는 체크박스가 잠기고 모두 기록된다 — 포맷은 어차피 전부 지우기 때문이다. 확인 대화상자가 유지할 파티션 이름을 그대로 보여주므로 실행 전에 확인할 수 있다.
+
+GUI는 CLI를 **서브프로세스로** 실행한다. FFI로 링크하지 않는 이유는 USB 전송이 실제로 멈출 수 있기 때문이다 — 잘못된 명령이 보드를 `INVALID direction` 상태로 만들고 전송이 타임아웃까지 걸린 적이 있다. 별도 프로세스면 그 hang은 kill로 끝나고, 취소도 프로세스 종료로 처리된다. 검증이 끝난 플래싱 경로를 GUI 작업이 건드리지 않는 이점도 있다.
+
+### Android Studio에서 열기
+
+이 리포의 `pubspec.yaml`은 리포 루트가 아니라 `gui/`에 있다. Android Studio의 Flutter 플러그인이 프로젝트를 인식하려면 **`gui/` 폴더 자체를 열어야** 한다 (`File > Open` → `gui/` 선택). 리포 루트를 열면 Flutter 프로젝트로 인식되지 않는다.
+
+1. Flutter/Dart 플러그인이 설치되어 있는지 확인하고, `Settings > Languages & Frameworks > Flutter`에서 Flutter SDK 경로를 지정한다.
+2. `gui/`를 열면 `lib/main.dart`를 보고 "main.dart" Run/Debug 구성이 자동으로 생긴다.
+3. 상단 디바이스 드롭다운에서 **"macOS (desktop)"** / **"Windows (desktop)"** / **"Linux (desktop)"** 을 고른다 — `android/`, `ios/` 폴더가 없으므로 에뮬레이터가 아니라 데스크톱 타깃을 선택해야 한다.
+4. GUI는 `target/release/aw-tool`(Windows는 `aw-tool.exe`)을 저장소 안에서 자동으로 찾으므로(`gui/lib/aw_tool.dart`의 `locate()`), Android Studio에서 실행하기 전에 터미널에서 한 번은 직접 빌드해둬야 한다.
+
+   ```bash
+   cargo build --release --features vendored
+   ```
+
+   매번 수동으로 하기 번거로우면 Run Configuration의 "Before launch"에 이 명령을 실행하는 External Tool을 추가할 수 있다. `Settings > Tools > External Tools`에서 Program `cargo`, Arguments `build --release --features vendored`, Working directory `$ProjectFileDir$/..`로 도구를 만든 뒤, `Run > Edit Configurations`의 Before launch에 "Run External tool"로 추가한다.
+
+### macOS
 
 ```bash
 ./scripts/build-app.sh
@@ -210,9 +277,42 @@ cargo build --release && cd gui && flutter run -d macos
 
 앱은 **Apple Silicon(arm64) 전용**이다. Flutter는 유니버설 바이너리를 만들 수 있지만 번들된 helper는 cargo가 호스트 아키텍처로만 빌드하므로, 유니버설 앱은 Intel 맥에서 실행은 되고 helper를 부르는 순간 실패한다. 아키텍처를 맞춰 두는 편이 정직하다(`gui/macos/Runner/Configs/Release.xcconfig`의 `ARCHS`). 유니버설로 바꾸려면 rustup을 설치하고(Homebrew 툴체인에는 x86_64 std가 없다) `rustup target add x86_64-apple-darwin` 후 두 벌을 `lipo -create`로 합치면 된다.
 
-GUI는 CLI를 **서브프로세스로** 실행한다. FFI로 링크하지 않는 이유는 USB 전송이 실제로 멈출 수 있기 때문이다 — 잘못된 명령이 보드를 `INVALID direction` 상태로 만들고 전송이 타임아웃까지 걸린 적이 있다. 별도 프로세스면 그 hang은 kill로 끝나고, 취소도 프로세스 종료로 처리된다. 검증이 끝난 플래싱 경로를 GUI 작업이 건드리지 않는 이점도 있다.
+### Windows
+
+```powershell
+.\scripts\build-app-windows.ps1
+# 산출물: gui\build\windows\x64\runner\Release\aw_flasher.exe (+ 옆에 aw-tool.exe)
+```
+
+이 스크립트가 하는 일: `--features vendored`로 helper 빌드 → Flutter 릴리즈 빌드 → helper(`aw-tool.exe`)를 실행 파일과 같은 폴더에 복사. macOS와 달리 번들 구조나 코드 서명이 없어 재서명 단계는 없다.
+
+개발 중에는 앱이 저장소의 `target\release\aw-tool.exe`를 자동으로 찾는다.
+
+```powershell
+cargo build --release
+cd gui
+flutter run -d windows
+```
+
+**코드 서명이 없다.** 첫 실행 시 Windows SmartScreen이 "Windows에서 PC를 보호했습니다" 경고를 띄울 수 있다 — "추가 정보 → 실행"으로 넘어갈 수 있다. macOS의 Gatekeeper와 같은 이유(발급사 서명이 없음)다.
+
+**실기 연결은 WinUSB 드라이버 바인딩이 먼저다.** 위 "USB 드라이버" 참조.
+
+### Linux
+
+*이 저장소에서 아직 빌드·실행이 검증되지 않았다.* 플랫폼 스캐폴딩(`gui/linux/`)은 생성돼 있으므로, 원칙적으로는 아래와 같이 진행하면 된다.
+
+```bash
+cargo build --release --features vendored
+cd gui && flutter build linux --release
+cp ../target/release/aw-tool build/linux/x64/release/bundle/aw-tool
+```
+
+(정확한 번들 경로는 Flutter/CMake 버전에 따라 달라질 수 있다.)
 
 ## 릴리즈
+
+macOS용 패키징·GitHub 배포 자동화만 갖춰져 있다. Windows는 `scripts/build-app-windows.ps1`으로 빌드까지만 자동화돼 있고, 압축·체크섬·GitHub 릴리즈 게시는 아직 없다 — 필요하면 `gui/build/windows/x64/runner/Release/` 폴더 전체를 압축해서 배포하면 된다.
 
 ```bash
 ./scripts/release.sh v0.1.0             # 빌드 → 패키징 → GitHub 릴리즈 초안
@@ -314,7 +414,7 @@ EFEX
 
 ## 크레딧
 
-앱 아이콘: [Icons8](https://icons8.com). 무료 라이선스는 출처 표기를 요구하므로 README와 앱의 About 대화상자 양쪽에 넣었다. 원본은 `assets/icon-source.png`이며, `scripts/make-icon.sh`가 앱 테마 색의 라운드 스퀘어에 올려 아이콘 세트를 만든다.
+앱 아이콘: [Icons8](https://icons8.com). 무료 라이선스는 출처 표기를 요구하므로 README와 앱의 About 대화상자 양쪽에 넣었다. 원본은 `assets/icon-source.png`이며, `scripts/make-icon.sh`가 앱 테마 색의 라운드 스퀘어에 올려 macOS 아이콘 세트를 만든다. macOS는 Dock 자체가 둥근 사각형·그림자를 씌우는 것을 전제로 여백을 두 번(캔버스→플레이트, 플레이트→글리프) 주는데, Windows/Linux는 이 관행이 없고 어두운 플레이트가 어두운 taskbar와 거의 겹쳐 보이지 않아 그 여백만큼 아이콘이 작아 보인다. 그래서 `scripts/make-icon-win-linux.py`는 macOS 결과물을 재사용하지 않고 같은 원본 글리프에서 독립적으로 다시 합성해, 글리프가 캔버스의 92%까지 차도록 만든다. ImageMagick 없이 Pillow만으로 동작한다.
 
 ## 문서
 
@@ -337,6 +437,10 @@ EFEX
 | `gui/lib/main.dart` | UI |
 | `gui/lib/l10n/*.arb` | 한국어 · 영어 문자열 (generated 파일은 커밋하지 않음) |
 | `gui/lib/about.dart` | About 대화상자 |
-| `scripts/build-app.sh` | `.app` 빌드 + helper 동봉 + 재서명 |
-| `scripts/release.sh` | 릴리즈 패키징 + GitHub 게시 |
-| `scripts/make-icon.sh` | 아이콘 세트 생성 |
+| `gui/lib/troubleshoot.dart` | Windows USB 드라이버 문제 해결 대화상자 |
+| `gui/lib/language_setting.dart` | 수동으로 고른 언어를 파일에 저장/로드 |
+| `scripts/build-app.sh` | macOS `.app` 빌드 + helper 동봉 + 재서명 |
+| `scripts/build-app-windows.ps1` | Windows 빌드 + helper(`aw-tool.exe`) 동봉 |
+| `scripts/release.sh` | macOS 릴리즈 패키징 + GitHub 게시 |
+| `scripts/make-icon.sh` | macOS 아이콘 세트 생성 |
+| `scripts/make-icon-win-linux.py` | 같은 원본 글리프로 Windows `.ico` / Linux `.png`를 독립적으로 합성 (macOS보다 훨씬 꽉 채움) |

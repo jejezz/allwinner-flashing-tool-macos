@@ -1,5 +1,5 @@
 name: aw_flasher
-description: "macOS front-end for the aw-tool Allwinner T507/T527 flasher."
+description: "Desktop front-end for the aw-tool Allwinner T507/T527 flasher."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

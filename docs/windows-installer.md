@@ -1,14 +1,18 @@
 # Windows 인스톨러 만들기
 
-`scripts/build-app-windows.ps1`은 `gui\build\windows\x64\runner\Release\`에 실행 파일 폴더를 만들 뿐, 더블클릭 한 번으로 설치되는 인스톨러(`setup.exe`)나 `.msi`는 만들지 않는다. 이 문서는 그 폴더를 실제 배포용 인스톨러로 패키징해서 GitHub 릴리즈에 올리는 절차를 수동으로 정리한 것이다 — 자동화 스크립트는 일부러 만들지 않았다. 새 버전을 낼 때마다 아래 단계를 직접 따라간다.
+`scripts/build-app-windows.ps1`은 `gui\build\windows\x64\runner\Release\`에 실행 파일 폴더를 만들 뿐, 더블클릭 한 번으로 설치되는 인스톨러(`setup.exe`)나 `.msi`는 만들지 않는다. 그 폴더를 실제 배포용 인스톨러로 패키징해서 GitHub 릴리즈에 올리는 절차를 수동으로 정리한 것이 이 문서다 — 자동화 스크립트는 일부러 만들지 않았다. 새 버전을 낼 때마다 아래 단계를 직접 따라간다.
 
-두 가지 방법이 있다.
+**빌드 스크립트는 이미 저장소에 있다.** 새로 만들 필요 없이, 아래 두 파일을 그대로 쓴다.
 
-| | Inno Setup | WiX Toolset |
+| 파일 | 용도 |
+|---|---|
+| [`installer/windows/aw-flasher.iss`](../installer/windows/aw-flasher.iss) | Inno Setup 스크립트 — `AllwinnerFlasherSetup-<version>.exe` 생성 |
+| [`installer/windows/aw-flasher.wxs`](../installer/windows/aw-flasher.wxs) | WiX 스크립트 — `AllwinnerFlasher-<version>.msi` 생성 |
+
+| | Inno Setup (`aw-flasher.iss`) | WiX Toolset (`aw-flasher.wxs`) |
 |---|---|---|
-| 결과물 | `AllwinnerFlasherSetup-<version>.exe` (인스톨러) | `AllwinnerFlasher-<version>.msi` (진짜 MSI) |
-| 난이도 | 쉬움 — 스크립트 30줄 정도 | 어려움 — WiX 스키마를 더 알아야 함 |
-| 이 문서에서의 검증 상태 | **실제로 컴파일·설치·실행까지 확인함** (2026-09-19, 이 저장소의 릴리즈 빌드로) | 스크립트만 작성 — 이 머신엔 WiX가 없어 컴파일은 못 해봄 |
+| 결과물 | `.exe` 인스톨러 | 진짜 `.msi` |
+| 이 문서에서의 검증 상태 | **실제로 컴파일·설치·실행까지 확인함** (2026-09-19, 이 저장소의 릴리즈 빌드로) | 컴파일이 **EULA 동의 절차에 막혀 못 해봄** — 아래 "방법 2" 참조 |
 | 언제 쓰나 | 일반적인 배포 — 특별한 이유가 없으면 이거 | Group Policy/Intune 같은 기업 배포 도구가 `.msi`를 요구할 때 |
 
 특별한 이유가 없다면 **Inno Setup**을 쓴다.
@@ -35,48 +39,9 @@ winget install JRSoftware.InnoSetup
 
 ### 스크립트
 
-저장소에 아래 내용으로 `installer/windows/aw-flasher.iss`를 만든다 (`installer/` 디렉터리는 새로 만들면 된다).
+이미 저장소에 있다 — [`installer/windows/aw-flasher.iss`](../installer/windows/aw-flasher.iss). 새로 만들 필요 없다. 새 버전을 낼 때는 그 파일 맨 위의 `MyAppVersion`을 `gui/pubspec.yaml`의 `version:`과 맞춰서 바꾸기만 하면 된다 (예: `0.1.0` → `0.2.0`).
 
-```iss
-#define MyAppName "Allwinner Flasher"
-#define MyAppVersion "0.1.0"
-#define MyAppExeName "aw_flasher.exe"
-#define SourceDir "..\..\gui\build\windows\x64\runner\Release"
-
-[Setup]
-; 한 번 생성한 뒤 절대 바꾸지 않는다 — 버전이 올라가도 같은 앱으로 인식되어
-; 제어판 "프로그램 추가/제거"에서 업그레이드·제거가 제대로 동작하려면 필요하다.
-; 새로 생성하려면 PowerShell에서: [guid]::NewGuid()
-AppId={{B7B6E1A0-6E6D-4C3E-9C1A-1F3AEFE80001}
-AppName={#MyAppName}
-AppVersion={#MyAppVersion}
-AppPublisher=jyahn
-DefaultDirName={autopf}\{#MyAppName}
-DefaultGroupName={#MyAppName}
-OutputDir=..\..\dist
-OutputBaseFilename=AllwinnerFlasherSetup-{#MyAppVersion}
-SetupIconFile=..\..\gui\windows\runner\resources\app_icon.ico
-Compression=lzma2
-SolidCompression=yes
-ArchitecturesInstallIn64BitMode=x64compatible
-DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\{#MyAppExeName}
-
-[Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
-
-[Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-
-[Tasks]
-Name: "desktopicon"; Description: "바탕화면에 바로가기 만들기"; GroupDescription: "추가 아이콘:"
-
-[Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "설치 후 바로 실행"; Flags: nowait postinstall skipifsilent
-```
-
-새 버전을 낼 때마다 `MyAppVersion`을 `pubspec.yaml`의 `version:`과 맞춰서 바꾼다.
+`AppId`(고유 GUID)는 그 안에 이미 고정되어 있다 — 앱을 갈아엎는 게 아니라면 절대 바꾸지 않는다. 바꾸면 Windows가 이전 버전과 다른 앱으로 인식해서, 제어판 "프로그램 추가/제거"에서 업그레이드/제거가 깨진다.
 
 ### 컴파일
 
@@ -99,7 +64,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "설치 후 바로 실행"; Flag
 
 ## 방법 2: WiX Toolset로 진짜 `.msi` 만들기
 
-기업 배포 도구가 `.msi`를 요구하는 경우가 아니면 위 Inno Setup으로 충분하다. 아래는 WiX v5 문법으로 쓴 예시로, **이 머신에는 WiX가 설치되어 있지 않아 실제로 컴파일해보지는 못했다** — 진행하다 막히면 [WiX 문서](https://wixtoolset.org/docs/)를 참고한다.
+기업 배포 도구가 `.msi`를 요구하는 경우가 아니면 위 Inno Setup으로 충분하다.
 
 ### 준비
 
@@ -111,51 +76,37 @@ dotnet tool install --global wix
 
 ### 스크립트
 
-`installer/windows/aw-flasher.wxs`:
+이미 저장소에 있다 — [`installer/windows/aw-flasher.wxs`](../installer/windows/aw-flasher.wxs). 새 버전을 낼 때는 `<Package>`의 `Version="0.1.0"`을 `gui/pubspec.yaml`과 맞춰서 바꾼다. `UpgradeCode`와 `ShortcutComponent`의 `Guid`는 `AppId`와 같은 이유로 고정값이니 바꾸지 않는다.
 
-```xml
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package name="Allwinner Flasher"
-           Manufacturer="jyahn"
-           Version="0.1.0"
-           UpgradeCode="8F2C1A40-7B3E-4A6D-9E5F-2C6BE0000001">
-    <!-- UpgradeCode도 AppId와 마찬가지로 한 번 정하면 절대 바꾸지 않는다 -->
-    <MajorUpgrade DowngradeErrorMessage="더 최신 버전이 이미 설치되어 있습니다." />
-    <MediaTemplate EmbedCab="yes" />
+`<Files Include>`가 `INSTALLFOLDER` 아래 파일들을 자동으로 하베스팅해서 컴포넌트 그룹을 만들어준다 (WiX v3의 `heat.exe` 없이도 됨).
 
-    <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Allwinner Flasher">
-        <Files Include="..\..\gui\build\windows\x64\runner\Release\**" />
-      </Directory>
-    </StandardDirectory>
-
-    <StandardDirectory Id="ProgramMenuFolder">
-      <Component Id="ShortcutComponent" Guid="8F2C1A40-7B3E-4A6D-9E5F-2C6BE0000002">
-        <Shortcut Id="AppShortcut"
-                  Name="Allwinner Flasher"
-                  Target="[INSTALLFOLDER]aw_flasher.exe"
-                  WorkingDirectory="INSTALLFOLDER" />
-        <RemoveFolder Id="RemoveProgramMenuFolder" On="uninstall" />
-        <RegistryValue Root="HKCU" Key="Software\jyahn\AllwinnerFlasher"
-                        Name="installed" Type="integer" Value="1" KeyPath="yes" />
-      </Component>
-    </StandardDirectory>
-
-    <Feature Id="MainFeature" Title="Allwinner Flasher" Level="1">
-      <ComponentGroupRef Id="INSTALLFOLDER" />
-      <ComponentRef Id="ShortcutComponent" />
-    </Feature>
-  </Package>
-</Wix>
-```
-
-`<Files Include>`가 `INSTALLFOLDER` 아래 파일들을 자동으로 하베스팅해서 컴포넌트 그룹을 만들어준다 (WiX v3의 `heat.exe` 없이도 됨) — 다만 WiX 버전에 따라 문법이 조금씩 다르니, 컴파일 에러가 나면 설치된 WiX 버전의 문서를 확인한다.
-
-### 빌드
+### 빌드 — 여기서 막힌다: EULA 동의가 필요하다
 
 ```powershell
 wix build installer\windows\aw-flasher.wxs -arch x64 -out dist\AllwinnerFlasher-0.1.0.msi
 ```
+
+이 저장소에서 실제로 실행해보면 컴파일이 안 되고 아래 에러가 난다:
+
+```
+wix.exe : error WIX7015: You must accept the Open Source Maintenance Fee (OSMF) EULA to use WiX Toolset v7.
+```
+
+WiX v6부터 "Open Source Maintenance Fee"라는 게 생겼다 — 연 매출이 특정 기준(현재 $10,000)을 넘는 조직은 WiX 유지보수를 후원해야 하고, v7부터는 그 EULA에 동의하지 않으면 빌드 자체가 막힌다. **이건 라이선스/비용에 관한 결정이라 AI가 대신 동의하지 않았다** — 자세한 내용은 [wixtoolset.org/osmf](https://wixtoolset.org/osmf/)에서 직접 확인하고, 동의할지 결정하는 것은 사용자의 몫이다.
+
+검토 후 진행하기로 했다면, 매번 묻지 않게 한 번만 동의해두는 방법:
+
+```powershell
+wix eula accept wix7
+```
+
+또는 빌드 스크립트/CI에서 매번 명시하는 방법:
+
+```powershell
+wix build installer\windows\aw-flasher.wxs -acceptEula wix7 -arch x64 -out dist\AllwinnerFlasher-0.1.0.msi
+```
+
+**그래서 이 방법은 이 문서에서 실제로 컴파일까지 확인하지 못했다.** 스크립트 자체(`<Files Include>` 하베스팅 문법 등)가 설치된 WiX 버전과 맞는지는 EULA에 동의하고 직접 빌드해봐야 확인된다. 막히면 [WiX 문서](https://wixtoolset.org/docs/)를 참고한다.
 
 ## GitHub 릴리즈에 올리기
 

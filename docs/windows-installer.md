@@ -120,7 +120,7 @@ macOS `release.sh`가 이미 그 버전의 릴리즈를 만들어 놓은 상태�
 gh release upload v0.1.0 dist\AllwinnerFlasherSetup-0.1.0.exe
 ```
 
-아직 릴리즈 자체가 없다면 (Windows만 먼저 낼 때):
+아직 릴리즈 자체가 없다면 (Windows만 먼저 낼 때): (gh install -> winget install GitHub.cli)
 
 ```powershell
 gh release create v0.1.0 dist\AllwinnerFlasherSetup-0.1.0.exe --title v0.1.0 --draft

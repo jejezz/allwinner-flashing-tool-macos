@@ -5,7 +5,7 @@
 ; below to match pubspec.yaml, then compile this file with ISCC.exe).
 
 #define MyAppName "Allwinner Flasher"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1"
 #define MyAppExeName "aw_flasher.exe"
 #define SourceDir "..\..\gui\build\windows\x64\runner\Release"
 

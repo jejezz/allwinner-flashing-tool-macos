@@ -8,7 +8,7 @@
 PRODUCT_NAME = Allwinner Flasher
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.europa.awflasher
+PRODUCT_BUNDLE_IDENTIFIER = art.zoomon.awflasher
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 jyahn. All rights reserved.

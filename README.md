@@ -312,10 +312,12 @@ cp ../target/release/aw-tool build/linux/x64/release/bundle/aw-tool
 
 ## 릴리즈
 
-macOS용 패키징·GitHub 배포 자동화만 갖춰져 있다. Windows는 `scripts/build-app-windows.ps1`으로 빌드까지만 자동화돼 있고, 압축·체크섬·GitHub 릴리즈 게시는 아직 없다 — 필요하면 `gui/build/windows/x64/runner/Release/` 폴더 전체를 압축해서 배포하면 된다.
+macOS/Windows 모두 패키징·GitHub 배포가 자동화돼 있다 — 로컬 스크립트로도,
+`v*` 태그를 push하면 GitHub Actions로도 실행할 수 있다 (등록 방법은
+[docs/release-ci.md](docs/release-ci.md) 참고, 시크릿 등록 불필요).
 
 ```bash
-./scripts/release.sh v0.1.0             # 빌드 → 패키징 → GitHub 릴리즈 초안
+./scripts/release.sh v0.1.0             # macOS: 빌드 → 패키징 → GitHub 릴리즈 초안
 ./scripts/release.sh v0.1.0 --publish   # 초안 대신 바로 공개
 ```
 
@@ -330,6 +332,15 @@ macOS용 패키징·GitHub 배포 자동화만 갖춰져 있다. Windows는 `scr
 스크립트는 워킹 트리가 깨끗한지 확인하고, helper 아키텍처를 검사하고, 압축을 푼 뒤 서명이 여전히 유효한지 검증한 다음 태그를 밀고 `gh release create`를 부른다.
 
 `zip`이 아니라 `ditto -c -k --keepParent`를 쓴다. `zip(1)`은 번들의 심볼릭 링크와 확장 속성을 보존하지 못해 압축을 풀면 코드 서명이 깨진다.
+
+Windows는 `scripts/release-windows.ps1`이 같은 역할을 한다 (빌드 →
+[Inno Setup](docs/windows-installer.md) 인스톨러 컴파일 → 같은 태그의 GitHub
+릴리즈에 업로드).
+
+```powershell
+.\scripts\release-windows.ps1 v0.1.0            # 빌드 → 패키징 → GitHub 릴리즈 초안/업로드
+.\scripts\release-windows.ps1 v0.1.0 -Publish   # 초안 대신 바로 공개
+```
 
 ### Gatekeeper
 
@@ -442,5 +453,7 @@ EFEX
 | `scripts/build-app.sh` | macOS `.app` 빌드 + helper 동봉 + 재서명 |
 | `scripts/build-app-windows.ps1` | Windows 빌드 + helper(`aw-tool.exe`) 동봉 |
 | `scripts/release.sh` | macOS 릴리즈 패키징 + GitHub 게시 |
+| `scripts/release-windows.ps1` | Windows 릴리즈 패키징(Inno Setup) + GitHub 게시 |
+| `.github/workflows/release-*.yml` | 위 두 스크립트를 태그 push/수동 실행으로 CI에서 호출 ([docs/release-ci.md](docs/release-ci.md)) |
 | `scripts/make-icon.sh` | macOS 아이콘 세트 생성 |
 | `scripts/make-icon-win-linux.py` | 같은 원본 글리프로 Windows `.ico` / Linux `.png`를 독립적으로 합성 (macOS보다 훨씬 꽉 채움) |

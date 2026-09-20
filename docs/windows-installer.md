@@ -1,6 +1,6 @@
 # Windows 인스톨러 만들기
 
-`scripts/build-app-windows.ps1`은 `gui\build\windows\x64\runner\Release\`에 실행 파일 폴더를 만들 뿐, 더블클릭 한 번으로 설치되는 인스톨러(`setup.exe`)나 `.msi`는 만들지 않는다. 그 폴더를 실제 배포용 인스톨러로 패키징해서 GitHub 릴리즈에 올리는 절차를 수동으로 정리한 것이 이 문서다 — 자동화 스크립트는 일부러 만들지 않았다. 새 버전을 낼 때마다 아래 단계를 직접 따라간다.
+`scripts/build-app-windows.ps1`은 `gui\build\windows\x64\runner\Release\`에 실행 파일 폴더를 만들 뿐, 더블클릭 한 번으로 설치되는 인스톨러(`setup.exe`)나 `.msi`는 만들지 않는다. 그 폴더를 실제 배포용 인스톨러로 패키징해서 GitHub 릴리즈에 올리는 절차를 정리한 것이 이 문서다. 매번 손으로 하고 싶지 않다면 `scripts/release-windows.ps1`(아래 "방법 1: Inno Setup" 단계를 자동화한 것)을 쓰거나, 태그를 push해서 GitHub Actions로 돌리면 된다 — 등록 방법은 [release-ci.md](release-ci.md) 참고. WiX(`.msi`)는 아래처럼 여전히 수동이다.
 
 **빌드 스크립트는 이미 저장소에 있다.** 새로 만들 필요 없이, 아래 두 파일을 그대로 쓴다.
 

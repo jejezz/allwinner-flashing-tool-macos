@@ -1,11 +1,15 @@
 ; Inno Setup script for Allwinner Flasher.
 ;
-; Not run automatically by anything in scripts/ — see docs/windows-installer.md
-; for the manual steps (build the release folder first, bump MyAppVersion
-; below to match pubspec.yaml, then compile this file with ISCC.exe).
+; Built manually — see docs/windows-installer.md for the steps (build the
+; release folder first, bump MyAppVersion below to match pubspec.yaml, then
+; compile this file with ISCC.exe) — or by scripts/release-windows.ps1 /
+; .github/workflows/release-windows.yml, which pass the tag's version via
+; `ISCC /DMyAppVersion=x.y.z` instead of editing this file.
 
 #define MyAppName "Allwinner Flasher"
-#define MyAppVersion "0.1.1"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.1.1"
+#endif
 #define MyAppExeName "aw_flasher.exe"
 #define SourceDir "..\..\gui\build\windows\x64\runner\Release"
 

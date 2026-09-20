@@ -309,10 +309,12 @@ cp ../target/release/aw-tool build/linux/x64/release/bundle/aw-tool
 
 ## Releasing
 
-Packaging and GitHub release automation exist for macOS only. Windows has `scripts/build-app-windows.ps1` for the build step, but nothing yet for archiving, checksums, or publishing a GitHub release — zip up `gui/build/windows/x64/runner/Release/` by hand if you need to distribute a build.
+Packaging and GitHub release automation exist for both macOS and Windows — run
+locally, or push a `v*` tag to run it in GitHub Actions instead (see
+[docs/release-ci.md](docs/release-ci.md); no secrets to register).
 
 ```bash
-./scripts/release.sh v0.1.0             # build → package → draft GitHub release
+./scripts/release.sh v0.1.0             # macOS: build → package → draft GitHub release
 ./scripts/release.sh v0.1.0 --publish   # publish instead of drafting
 ```
 
@@ -327,6 +329,15 @@ Three artifacts land in `dist/`:
 The script refuses a dirty working tree, checks the helper's architecture, verifies the signature still validates after a round-trip through the archive, then pushes the tag and calls `gh release create`.
 
 It uses `ditto -c -k --keepParent`, not `zip`. `zip(1)` does not preserve a bundle's symlinks and extended attributes, so the code signature breaks on extraction.
+
+`scripts/release-windows.ps1` does the same job for Windows — build, compile
+the [Inno Setup](docs/windows-installer.md) installer, upload to the same
+tag's GitHub release.
+
+```powershell
+.\scripts\release-windows.ps1 v0.1.0            # build → package → draft/update the GitHub release
+.\scripts\release-windows.ps1 v0.1.0 -Publish   # publish instead of drafting
+```
 
 ### Gatekeeper
 
@@ -439,5 +450,7 @@ The full investigation — protocol evidence (where in the vendor sources), hard
 | `scripts/build-app.sh` | Build the macOS `.app`, bundle the helper, re-sign |
 | `scripts/build-app-windows.ps1` | Build for Windows, bundle the helper (`aw-tool.exe`) |
 | `scripts/release.sh` | Package a macOS release and publish it |
+| `scripts/release-windows.ps1` | Package a Windows release (Inno Setup) and publish it |
+| `.github/workflows/release-*.yml` | Run the two scripts above from CI on a tag push or manual dispatch ([docs/release-ci.md](docs/release-ci.md)) |
 | `scripts/make-icon.sh` | Build the macOS app icon set |
 | `scripts/make-icon-win-linux.py` | Composites Windows `.ico` / Linux `.png` independently from the same source glyph (much less margin than macOS) |

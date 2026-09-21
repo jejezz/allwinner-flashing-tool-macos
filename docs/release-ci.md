@@ -84,8 +84,10 @@ git push origin v0.1.2
 |---|---|---|
 | `build-macos`가 "Import Developer ID certificate"에서 실패 | 시크릿이 비었거나, `.p12`/암호가 서로 안 맞거나, 인증서가 만료됨 | `gh secret list`로 6개가 다 있는지 확인, `.p12`를 다시 내보내 base64로 재등록. 급하면 위 "필요한 시크릿" 마지막 문단대로 서명 관련 3스텝을 지운다 |
 | `notarytool submit`이 "Invalid credentials" | `APPLE_ID_PASSWORD`가 일반 계정 비밀번호이거나 앱 암호가 만료/폐기됨 | appleid.apple.com에서 앱 암호를 새로 발급해서 재등록 |
+| 노터라이즈 상태가 `Accepted`가 아니라 `Invalid` | 서명 자체는 됐지만 Apple이 내용을 거부함(하드닝/시크릿 타임스탬프 등) — 이제 이 워크플로가 자동으로 실패 처리하고 바로 다음 "Show notarization log" 스텝이 사유를 출력한다 | 그 스텝의 로그(`xcrun notarytool log`)를 읽고 원인 수정. 예: 번들에 얹은 loose 실행 파일(`aw-tool`)은 `--deep` 서명만으로는 secure timestamp가 안 붙을 수 있어 별도로 서명해 둠(Sign app 스텝 참고) |
 | `build-linux`가 실패해서 릴리즈 자체가 안 생김 | Linux 빌드가 이 저장소에서 아직 검증된 적 없음 | Actions 로그로 원인 확인. 급하면 `release` 잡의 `needs:`에서 `build-linux`를 빼고 재실행 |
 | Windows 잡이 "ISCC.exe not found" 관련 에러 | `choco install innosetup` 스텝 실패, 또는 설치 경로가 워크플로가 가정한 `C:\Program Files (x86)\Inno Setup 6\`와 다름 | 워크플로 로그에서 해당 스텝 확인 |
+| Windows 잡이 ISCC에서 "You may not specify more than one script filename." | Git Bash(MSYS)가 `/DMyAppVersion=...`처럼 `/`로 시작하는 인자를 Windows 경로로 잘못 변환함 | `Package installer` 스텝에 이미 `MSYS_NO_PATHCONV: 1`을 넣어 뒀다 — 이 스텝을 손대다 지웠다면 다시 넣는다 |
 | `v*.*.*` 태그를 push했는데 Actions에 아무 실행도 안 뜸 | 태그가 가리키는 커밋에 이 워크플로 자체가 없음 | 이 변경이 `main`에 머지된 뒤의 커밋에 새로 태그를 찍는다 |
 | Rust `vendored`(macOS/Windows) 또는 일반(Linux) 빌드 실패 | 러너 이미지가 바뀌어 C 컴파일러/빌드 도구가 없어짐 | macOS는 Xcode Command Line Tools, Windows는 Visual Studio Build Tools, Linux는 `libusb-1.0-0-dev`가 있는지 확인 |
 

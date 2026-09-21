@@ -1,0 +1,267 @@
+name: Release
+
+# Adapted from https://github.com/jejezz/application-release-templates
+# (desktop/), which validates this same structure — Developer ID signing +
+# notarization included — end-to-end on a plain Flutter app. This repo
+# additionally bundles a Rust CLI helper (aw-tool) into each platform's
+# build, and macOS is Apple Silicon (arm64) only — see the "Bundle aw-tool
+# helper" step on each job and gui/macos/Runner/Configs/Release.xcconfig.
+#
+# Push a `v*.*.*` tag (e.g. v0.1.0) to build all three platforms in
+# parallel and upload each as a workflow artifact. Once every platform build
+# has succeeded, the final `release` job downloads all three artifacts and
+# creates a single GitHub Release with them attached, published immediately
+# (no draft) with auto-generated notes. If any platform build fails — including
+# Linux, which this repo's own README still marks unverified — no release is
+# created at all, so a broken Linux build blocks macOS/Windows too. See
+# docs/release-ci.md before relying on this for a real release.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    # A recent runner — some dependencies need an Xcode SDK newer than older
+    # runner images default to.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install native build tools
+        run: brew install create-dmg
+
+      - name: Install Flutter dependencies
+        working-directory: gui
+        run: flutter pub get
+
+      - name: Build aw-tool (vendored libusb)
+        run: cargo build --release --features vendored
+
+      - run: flutter build macos --release
+        working-directory: gui
+
+      # Adding this after Flutter's own build (and before signing, so the
+      # helper is covered by the --deep sign below) mirrors what
+      # scripts/build-app.sh does for local builds.
+      - name: Bundle aw-tool helper
+        run: |
+          APP_PATH="gui/build/macos/Build/Products/Release/$(ls gui/build/macos/Build/Products/Release | grep '\.app$' | head -1)"
+
+          ARCH="$(lipo -archs target/release/aw-tool)"
+          if [ "$ARCH" != "arm64" ]; then
+            echo "unexpected helper architecture: $ARCH" >&2
+            exit 1
+          fi
+
+          cp target/release/aw-tool "$APP_PATH/Contents/Resources/aw-tool"
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+      # Requires the MACOS_CERTIFICATE_* / MACOS_KEYCHAIN_PASSWORD secrets
+      # below (see docs/release-ci.md). If you don't have a Developer ID
+      # certificate yet, delete this step and the "Notarize DMG" step — the
+      # DMG will ship ad-hoc signed instead (as it already does locally via
+      # scripts/build-app.sh), and Gatekeeper will show an "unidentified
+      # developer" warning on first launch.
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+
+          echo -n "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode -o "$CERT_PATH"
+
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Sign app (Developer ID, hardened runtime)
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')
+          test -n "$IDENTITY"
+
+          codesign --force --deep --options runtime \
+            --entitlements gui/macos/Runner/Release.entitlements \
+            --sign "$IDENTITY" "$APP_PATH"
+
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Package DMG
+        run: |
+          APP_NAME=$(basename "$APP_PATH" .app)
+          mkdir -p dist
+          DMG_PATH="dist/${APP_NAME}-${{ github.ref_name }}.dmg"
+
+          # create-dmg is known to sometimes exit non-zero over unrelated
+          # warnings even after producing a working DMG, so don't treat that
+          # as failure — just check the file actually got created.
+          create-dmg \
+            --volname "$APP_NAME" \
+            --window-size 500 300 \
+            --icon-size 100 \
+            --app-drop-link 380 120 \
+            "$DMG_PATH" \
+            "$APP_PATH" || true
+
+          test -f "$DMG_PATH"
+          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
+
+      # APPLE_ID_PASSWORD must be an app-specific password generated at
+      # appleid.apple.com — your regular account password will not work.
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple "$DMG_PATH"
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN_PATH" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: ${{ env.DMG_PATH }}
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: gui
+        run: flutter pub get
+
+      - name: Build aw-tool (vendored libusb)
+        run: cargo build --release --features vendored
+
+      - run: flutter build windows --release
+        working-directory: gui
+
+      - name: Bundle aw-tool helper
+        shell: bash
+        run: cp target/release/aw-tool.exe gui/build/windows/x64/runner/Release/aw-tool.exe
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      # Only the version is CI-injected — unlike the template, this app's
+      # name and exe name are hardcoded in installer/windows/aw-flasher.iss
+      # rather than read from pubspec.yaml/CMakeLists.txt, since pubspec's
+      # `name:` here (aw_flasher) is the Dart package name, not the "Allwinner
+      # Flasher" display name.
+      - name: Package installer
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+            "/DMyAppVersion=$VERSION" \
+            installer/windows/aw-flasher.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*Setup-*.exe
+          if-no-files-found: error
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Standard toolchain flutter doctor recommends for Linux desktop
+      # builds, plus libusb1.0's headers for aw-tool's non-vendored build
+      # (Linux links the distro's libusb dynamically — see README.md's
+      # "Linux" section; unlike macOS/Windows this is not `--features
+      # vendored`).
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libusb-1.0-0-dev
+
+      - name: Install Flutter dependencies
+        working-directory: gui
+        run: flutter pub get
+
+      - name: Build aw-tool
+        run: cargo build --release
+
+      - run: flutter build linux --release
+        working-directory: gui
+
+      - name: Package tarball
+        run: |
+          STAGE_DIR="aw_flasher"
+          rm -rf "$STAGE_DIR"
+          cp -r gui/build/linux/x64/release/bundle "$STAGE_DIR"
+          cp target/release/aw-tool "$STAGE_DIR/aw-tool"
+
+          tar czf "aw_flasher-${{ github.ref_name }}-linux-x64.tar.gz" "$STAGE_DIR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: "*-linux-x64.tar.gz"
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-macos, build-windows, build-linux]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/* \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

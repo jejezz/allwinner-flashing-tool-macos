@@ -3,8 +3,8 @@
 ; Built manually — see docs/windows-installer.md for the steps (build the
 ; release folder first, bump MyAppVersion below to match pubspec.yaml, then
 ; compile this file with ISCC.exe) — or by scripts/release-windows.ps1 /
-; .github/workflows/release-windows.yml, which pass the tag's version via
-; `ISCC /DMyAppVersion=x.y.z` instead of editing this file.
+; .github/workflows/release.yml's build-windows job, which pass the tag's
+; version via `ISCC /DMyAppVersion=x.y.z` instead of editing this file.
 
 #define MyAppName "Allwinner Flasher"
 #ifndef MyAppVersion

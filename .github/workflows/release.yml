@@ -99,7 +99,16 @@ jobs:
             | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')
           test -n "$IDENTITY"
 
-          codesign --force --deep --options runtime \
+          # Sign the bundled aw-tool helper explicitly, before the outer app.
+          # Relying on the app's own `--deep` alone has been seen to leave a
+          # loose Mach-O binary sitting in Resources/ (as opposed to a
+          # .framework `--deep` normally walks into) without a secure
+          # timestamp, which notarization then rejects outright as "Invalid"
+          # with no further explanation.
+          codesign --force --options runtime --timestamp \
+            --sign "$IDENTITY" "$APP_PATH/Contents/Resources/aw-tool"
+
+          codesign --force --deep --options runtime --timestamp \
             --entitlements gui/macos/Runner/Release.entitlements \
             --sign "$IDENTITY" "$APP_PATH"
 
@@ -127,7 +136,15 @@ jobs:
 
       # APPLE_ID_PASSWORD must be an app-specific password generated at
       # appleid.apple.com — your regular account password will not work.
+      #
+      # `--wait` only waits for processing to finish; it exits 0 whether
+      # Apple accepted or rejected the submission, so a rejected ("Invalid")
+      # submission would otherwise sail past this step and fail later, more
+      # confusingly, at `stapler staple` (which has no ticket to attach).
+      # Checking the status explicitly turns that into a clear failure here,
+      # and the next step prints *why* it was rejected.
       - name: Notarize DMG
+        id: notarize
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
@@ -137,9 +154,31 @@ jobs:
             --apple-id "$APPLE_ID" \
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
-            --wait
+            --wait \
+            --output-format json | tee "$RUNNER_TEMP/notarize.json"
+
+          SUBMISSION_ID=$(jq -r .id "$RUNNER_TEMP/notarize.json")
+          STATUS=$(jq -r .status "$RUNNER_TEMP/notarize.json")
+          echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
+
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "notarization was $STATUS, not Accepted — see the next step's log" >&2
+            exit 1
+          fi
 
           xcrun stapler staple "$DMG_PATH"
+
+      - name: Show notarization log
+        if: failure() && steps.notarize.outputs.submission_id != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool log "${{ steps.notarize.outputs.submission_id }}" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID"
 
       - name: Clean up keychain
         if: always()
@@ -187,6 +226,13 @@ jobs:
       # Flasher" display name.
       - name: Package installer
         shell: bash
+        # MSYS_NO_PATHCONV: Git Bash's MSYS layer otherwise "helpfully"
+        # rewrites any /-leading argument as a Windows path before exec'ing a
+        # native .exe, which mangles `/DMyAppVersion=...` into garbage and
+        # makes ISCC see it as a second script filename ("You may not
+        # specify more than one script filename.").
+        env:
+          MSYS_NO_PATHCONV: 1
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"

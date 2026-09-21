@@ -309,9 +309,15 @@ cp ../target/release/aw-tool build/linux/x64/release/bundle/aw-tool
 
 ## Releasing
 
-Packaging and GitHub release automation exist for both macOS and Windows — run
-locally, or push a `v*` tag to run it in GitHub Actions instead (see
-[docs/release-ci.md](docs/release-ci.md); no secrets to register).
+Packaging and GitHub release automation exist for macOS/Windows/Linux — run a
+platform locally, or push a `v*.*.*` tag to have
+[.github/workflows/release.yml](.github/workflows/release.yml) build all
+three in parallel and publish them as **one** GitHub release (if any platform
+fails, no release is created at all). macOS is signed with a Developer ID and
+notarized in CI (secrets already registered — see
+[docs/release-ci.md](docs/release-ci.md) for details).
+
+The local scripts still only ad-hoc sign:
 
 ```bash
 ./scripts/release.sh v0.1.0             # macOS: build → package → draft GitHub release
@@ -449,8 +455,8 @@ The full investigation — protocol evidence (where in the vendor sources), hard
 | `gui/lib/language_setting.dart` | Saves/loads the manually picked language |
 | `scripts/build-app.sh` | Build the macOS `.app`, bundle the helper, re-sign |
 | `scripts/build-app-windows.ps1` | Build for Windows, bundle the helper (`aw-tool.exe`) |
-| `scripts/release.sh` | Package a macOS release and publish it |
-| `scripts/release-windows.ps1` | Package a Windows release (Inno Setup) and publish it |
-| `.github/workflows/release-*.yml` | Run the two scripts above from CI on a tag push or manual dispatch ([docs/release-ci.md](docs/release-ci.md)) |
+| `scripts/release.sh` | Package a macOS release (ad-hoc signed) and publish it — local only |
+| `scripts/release-windows.ps1` | Package a Windows release (Inno Setup) and publish it — local only |
+| `.github/workflows/release.yml` | On a tag push, build macOS (signed+notarized)/Windows/Linux in parallel and publish one GitHub release ([docs/release-ci.md](docs/release-ci.md)) |
 | `scripts/make-icon.sh` | Build the macOS app icon set |
 | `scripts/make-icon-win-linux.py` | Composites Windows `.ico` / Linux `.png` independently from the same source glyph (much less margin than macOS) |

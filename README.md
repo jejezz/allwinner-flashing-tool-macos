@@ -312,9 +312,15 @@ cp ../target/release/aw-tool build/linux/x64/release/bundle/aw-tool
 
 ## 릴리즈
 
-macOS/Windows 모두 패키징·GitHub 배포가 자동화돼 있다 — 로컬 스크립트로도,
-`v*` 태그를 push하면 GitHub Actions로도 실행할 수 있다 (등록 방법은
-[docs/release-ci.md](docs/release-ci.md) 참고, 시크릿 등록 불필요).
+macOS/Windows 모두 패키징·GitHub 배포가 자동화돼 있다 — 로컬 스크립트로 개별
+플랫폼을 낼 수도 있고, `v*.*.*` 태그를 push하면
+[.github/workflows/release.yml](.github/workflows/release.yml)이 macOS/Windows/Linux
+세 산출물을 병렬로 빌드해서 **하나의 GitHub 릴리즈로 묶어** 올린다 (하나라도
+실패하면 릴리즈 자체가 생성되지 않는다). macOS는 CI에서 Developer ID로
+서명·공증까지 마친다 (시크릿 등록 완료 — 자세한 내용은
+[docs/release-ci.md](docs/release-ci.md) 참고).
+
+로컬 스크립트는 여전히 ad-hoc 서명만 한다:
 
 ```bash
 ./scripts/release.sh v0.1.0             # macOS: 빌드 → 패키징 → GitHub 릴리즈 초안
@@ -452,8 +458,8 @@ EFEX
 | `gui/lib/language_setting.dart` | 수동으로 고른 언어를 파일에 저장/로드 |
 | `scripts/build-app.sh` | macOS `.app` 빌드 + helper 동봉 + 재서명 |
 | `scripts/build-app-windows.ps1` | Windows 빌드 + helper(`aw-tool.exe`) 동봉 |
-| `scripts/release.sh` | macOS 릴리즈 패키징 + GitHub 게시 |
-| `scripts/release-windows.ps1` | Windows 릴리즈 패키징(Inno Setup) + GitHub 게시 |
-| `.github/workflows/release-*.yml` | 위 두 스크립트를 태그 push/수동 실행으로 CI에서 호출 ([docs/release-ci.md](docs/release-ci.md)) |
+| `scripts/release.sh` | macOS 릴리즈 패키징(ad-hoc 서명) + GitHub 게시 — 로컬 전용 |
+| `scripts/release-windows.ps1` | Windows 릴리즈 패키징(Inno Setup) + GitHub 게시 — 로컬 전용 |
+| `.github/workflows/release.yml` | 태그 push 시 macOS(서명·공증)/Windows/Linux를 병렬 빌드해 하나의 GitHub 릴리즈로 게시 ([docs/release-ci.md](docs/release-ci.md)) |
 | `scripts/make-icon.sh` | macOS 아이콘 세트 생성 |
 | `scripts/make-icon-win-linux.py` | 같은 원본 글리프로 Windows `.ico` / Linux `.png`를 독립적으로 합성 (macOS보다 훨씬 꽉 채움) |

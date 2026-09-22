@@ -73,6 +73,9 @@
   "languageSystem": "자동",
 
   "aboutTooltip": "정보",
+  "aboutBuiltWith": "Flutter(Dart) · Rust로 제작",
+  "aboutLicense": "라이선스: MIT",
+  "aboutOpenRepo": "GitHub 저장소 열기",
   "aboutDescription": "Allwinner T507 / T527 보드를 FEL/EFEX USB 프로토콜로 플래싱합니다. PhoenixSuit을 대체하는 오픈소스 도구입니다.\n\n이미지에서 직접 꺼낸 프라이머로 보드를 FEL에서 EFEX로 넘긴 뒤, 파티션 테이블과 각 파티션, BOOT1, BOOT0을 기록합니다.",
 
   "troubleshootTooltip": "문제 해결",

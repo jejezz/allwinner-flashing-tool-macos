@@ -94,6 +94,9 @@
   "languageSystem": "Automatic",
 
   "aboutTooltip": "About",
+  "aboutBuiltWith": "Built with Flutter (Dart) and Rust",
+  "aboutLicense": "License: MIT",
+  "aboutOpenRepo": "Open GitHub repository",
   "aboutDescription": "Flashes Allwinner T507 / T527 boards over the FEL/EFEX USB protocol — an open-source alternative to PhoenixSuit.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written.",
 
   "troubleshootTooltip": "Troubleshoot",

@@ -1,24 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'l10n/app_localizations.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-/// Keep in step with `version:` in pubspec.yaml and the `aw-tool` crate.
-const kAppVersion = '0.1.0';
+const kRepositoryUrl =
+    'https://github.com/jejezz/allwinner-flashing-tool-macos';
 
 /// Shown by the ⓘ button in the header. The macOS menu bar's own "About" item
 /// still opens the standard AppKit panel, which reads the bundle's name,
 /// version and copyright — this one adds what the tool is actually for.
-Future<void> showAboutSheet(BuildContext context) {
+///
+/// The version comes from the built bundle (Info.plist, the Windows version
+/// resource, Linux's version.json), all of which Flutter fills in from
+/// `version:` in pubspec.yaml — so bumping pubspec is the only step needed.
+Future<void> showAboutSheet(BuildContext context) async {
+  final info = await PackageInfo.fromPlatform();
+  if (!context.mounted) return;
+  final version = info.buildNumber.isEmpty
+      ? info.version
+      : '${info.version}+${info.buildNumber}';
   return showDialog<void>(
     context: context,
-    builder: (context) => const _AboutDialog(),
+    builder: (context) => _AboutDialog(version: version),
   );
 }
 
 class _AboutDialog extends StatelessWidget {
-  const _AboutDialog();
+  const _AboutDialog({required this.version});
+
+  final String version;
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +61,7 @@ class _AboutDialog extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '$kAppVersion · ${l10n.appSubtitle}',
+                        '$version · ${l10n.appSubtitle}',
                         style: theme.textTheme.labelSmall,
                       ),
                     ],
@@ -60,6 +73,10 @@ class _AboutDialog extends StatelessWidget {
             Text(l10n.aboutDescription, style: theme.textTheme.bodyMedium),
             const SizedBox(height: 18),
             Divider(color: insetFill(context)),
+            const SizedBox(height: 10),
+            Text(l10n.aboutBuiltWith, style: theme.textTheme.bodySmall),
+            const SizedBox(height: 3),
+            Text(l10n.aboutLicense, style: theme.textTheme.bodySmall),
             const SizedBox(height: 10),
             Text(
               '© 2026 jyahn',
@@ -76,6 +93,13 @@ class _AboutDialog extends StatelessWidget {
         ),
       ),
       actions: [
+        TextButton(
+          onPressed: () => launchUrl(
+            Uri.parse(kRepositoryUrl),
+            mode: LaunchMode.externalApplication,
+          ),
+          child: Text(l10n.aboutOpenRepo),
+        ),
         FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.accent,

@@ -13,7 +13,11 @@ use event::Reporter;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "aw-tool", about = "Allwinner T507/T527 FEL/EFEX flashing helper")]
+#[command(
+    name = "aw-tool",
+    version = env!("AW_VERSION"),
+    about = "Allwinner T507/T527 FEL/EFEX flashing helper"
+)]
 struct Cli {
     /// Emit newline-delimited JSON events on stdout instead of prose, one
     /// object per line, each tagged with an `event` key. Intended for a GUI

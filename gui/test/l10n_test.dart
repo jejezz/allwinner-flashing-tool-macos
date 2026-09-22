@@ -2,6 +2,7 @@ import 'package:aw_flasher/about.dart';
 import 'package:aw_flasher/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 /// Pumps a host app in `locale` and hands back a context inside it.
 Future<BuildContext> _host(WidgetTester tester, Locale locale) async {
@@ -56,6 +57,13 @@ void main() {
 
   testWidgets('the About dialog builds and shows the purpose text',
       (tester) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Allwinner Flasher',
+      packageName: 'aw_flasher',
+      version: '9.8.7',
+      buildNumber: '65',
+      buildSignature: '',
+    );
     for (final (locale, needle) in [
       (const Locale('ko'), 'PhoenixSuit'),
       (const Locale('en'), 'PhoenixSuit'),
@@ -67,7 +75,9 @@ void main() {
       expect(find.text('Allwinner Flasher'), findsOneWidget);
       expect(find.textContaining(needle), findsOneWidget);
       expect(find.text('© 2026 jyahn'), findsOneWidget);
-      expect(find.textContaining(kAppVersion), findsOneWidget);
+      expect(find.textContaining('9.8.7+65'), findsOneWidget);
+      expect(find.textContaining('MIT'), findsOneWidget);
+      expect(find.textContaining('GitHub'), findsOneWidget);
 
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();

@@ -431,7 +431,7 @@ EFEX
 
 ## 크레딧
 
-앱 아이콘: [Icons8](https://icons8.com). 무료 라이선스는 출처 표기를 요구하므로 README와 앱의 About 대화상자 양쪽에 넣었다. 원본은 `assets/icon-source.png`이며, `scripts/make-icon.sh`가 앱 테마 색의 라운드 스퀘어에 올려 macOS 아이콘 세트를 만든다. macOS는 Dock 자체가 둥근 사각형·그림자를 씌우는 것을 전제로 여백을 두 번(캔버스→플레이트, 플레이트→글리프) 주는데, Windows/Linux는 이 관행이 없고 어두운 플레이트가 어두운 taskbar와 거의 겹쳐 보이지 않아 그 여백만큼 아이콘이 작아 보인다. 그래서 `scripts/make-icon-win-linux.py`는 macOS 결과물을 재사용하지 않고 같은 원본 글리프에서 독립적으로 다시 합성해, 글리프가 캔버스의 92%까지 차도록 만든다. ImageMagick 없이 Pillow만으로 동작한다.
+앱 아이콘: [Icons8](https://icons8.com). 무료 라이선스는 출처 표기를 요구하므로 README와 앱의 About 대화상자 양쪽에 넣었다. 원본은 `gui/assets/icon/source_glyph.svg`(Icons8 Sticker)이며, `gui/tool/icon/generate_icons.py`가 [application-release-templates](https://github.com/jejezz/application-release-templates)의 공통 판(보라→분홍 그라데이션)에 올려 macOS·Windows·Linux 아이콘을 한 번에 만든다 (`cd gui && python3 tool/icon/generate_icons.py`, Pillow 필요).
 
 ## 문서
 
@@ -461,5 +461,4 @@ EFEX
 | `scripts/release.sh` | macOS 릴리즈 패키징(ad-hoc 서명) + GitHub 게시 — 로컬 전용 |
 | `scripts/release-windows.ps1` | Windows 릴리즈 패키징(Inno Setup) + GitHub 게시 — 로컬 전용 |
 | `.github/workflows/release.yml` | 태그 push 시 macOS(서명·공증)/Windows/Linux를 병렬 빌드해 하나의 GitHub 릴리즈로 게시 ([docs/release-ci.md](docs/release-ci.md)) |
-| `scripts/make-icon.sh` | macOS 아이콘 세트 생성 |
-| `scripts/make-icon-win-linux.py` | 같은 원본 글리프로 Windows `.ico` / Linux `.png`를 독립적으로 합성 (macOS보다 훨씬 꽉 채움) |
+| `gui/tool/icon/generate_icons.py` | 원본 글리프로 macOS·Windows·Linux 앱 아이콘 생성 |

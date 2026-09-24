@@ -428,7 +428,7 @@ The pipeline is shared, but these are SoC-specific and have to be re-checked aga
 
 ## Credits
 
-App icon by [Icons8](https://icons8.com). Their free licence requires attribution, so the credit ships in the README and in the app's About dialog. The original is `assets/icon-source.png`; `scripts/make-icon.sh` composites it onto a rounded square in the app's own surface colour and writes the macOS icon set. macOS insets that twice — a margin around the whole plate (room for the Dock's own rounding/shadow) and then the glyph resized down again within the plate — and neither convention applies on Windows/Linux, where a dark plate is also nearly invisible against a dark taskbar, so reusing the macOS result left the glyph looking too small. `scripts/make-icon-win-linux.py` instead composites independently from the same source glyph, filling 92% of the canvas. It only needs Pillow, no ImageMagick.
+App icon by [Icons8](https://icons8.com). Their free licence requires attribution, so the credit ships in the README and in the app's About dialog. The original is `gui/assets/icon/source_glyph.svg` (Icons8 Sticker); `gui/tool/icon/generate_icons.py` puts it on the shared plate (violet→pink gradient) from [application-release-templates](https://github.com/jejezz/application-release-templates) and writes the macOS, Windows and Linux icons in one go (`cd gui && python3 tool/icon/generate_icons.py`, needs Pillow).
 
 ## Documentation
 
@@ -458,5 +458,4 @@ The full investigation — protocol evidence (where in the vendor sources), hard
 | `scripts/release.sh` | Package a macOS release (ad-hoc signed) and publish it — local only |
 | `scripts/release-windows.ps1` | Package a Windows release (Inno Setup) and publish it — local only |
 | `.github/workflows/release.yml` | On a tag push, build macOS (signed+notarized)/Windows/Linux in parallel and publish one GitHub release ([docs/release-ci.md](docs/release-ci.md)) |
-| `scripts/make-icon.sh` | Build the macOS app icon set |
-| `scripts/make-icon-win-linux.py` | Composites Windows `.ico` / Linux `.png` independently from the same source glyph (much less margin than macOS) |
+| `gui/tool/icon/generate_icons.py` | Generates the macOS, Windows and Linux app icons from the source glyph |

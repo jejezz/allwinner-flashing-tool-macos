@@ -1,6 +1,8 @@
-# aw-tool
+# aw-tool — CLI and development notes
 
-[한국어](README.md)
+[한국어](aw-tool.md) · For what the app is and how to install it, see the [README](../README.md)
+
+> This was the repository README up to v1.1.3. When conventions-v1 rewrote the README as the app's front page, the CLI usage, build, driver and verification notes moved here.
 
 Flashes Allwinner T507/T527 boards. Runs on macOS, Windows, and Linux — an open-source alternative to the vendor tool, PhoenixSuit, implementing the FEL/EFEX USB protocol directly.
 
@@ -15,7 +17,7 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 | `aw-tool` (Rust) | The CLI. The whole protocol implementation lives here |
 | `gui/` (Flutter) | Desktop app (macOS / Windows / Linux). Runs the CLI as a subprocess and shows progress |
 
-<img src="docs/images/gui-en.png" width="620" alt="Allwinner Flasher main window">
+<img src="images/gui-en.png" width="620" alt="Allwinner Flasher main window">
 
 The app follows the system language; Korean and English are supported.
 
@@ -234,7 +236,7 @@ MBR / BOOT0 / BOOT1 are always written regardless of the selection. They belong 
 
 The Flutter desktop app in `gui/` (macOS / Windows / Linux). Pick an image and it previews the partition table; it detects the board and enables the flash button, then shows progress and a log.
 
-The interface language follows the system setting by default, but only Korean and English actually exist — Korean if the system is Korean, English for everything else, which is why the menu item is labelled "Automatic" rather than "System language" (it doesn't really track arbitrary system locales). The globe icon in the header can also force it — "Automatic" / "한국어" / "English" — and the choice sticks across launches (saved to a per-OS settings folder; a single file, so it's hand-rolled rather than pulling in a package for it). Works the same on all three platforms.
+Language and theme follow the system by default. Only Korean and English exist: Korean if the system is Korean, English for every other language. The theme button (System / Light / Dark) and the language button (Follow System / 한국어 / English) in the header override them, and the choice is saved in `shared_preferences` under `theme_mode` / `app_locale`. The language file used up to v1.1.3 (`<config folder>/AllwinnerFlasher/language`) is moved over once on first launch and deleted (`gui/lib/settings/legacy_language_file.dart`).
 
 **Turning off Full format puts checkboxes on the partition list.** Unchecked partitions are left as they are (see "Writing selected partitions"). In full-format mode the checkboxes are locked and everything is written — a format wipes it all anyway. The confirmation dialog spells out the partitions being kept, so it can be checked before committing.
 
@@ -309,13 +311,15 @@ cp ../target/release/aw-tool build/linux/x64/release/bundle/aw-tool
 
 ## Releasing
 
+Bump the version with `scripts/bump-version.sh patch|minor|major` (it bumps `gui/pubspec.yaml` and `Cargo.toml` together, build number +1), merge the PR, then tag the merge commit on `main`.
+
 Packaging and GitHub release automation exist for macOS/Windows/Linux — run a
 platform locally, or push a `v*.*.*` tag to have
-[.github/workflows/release.yml](.github/workflows/release.yml) build all
-three in parallel and publish them as **one** GitHub release (if any platform
+[.github/workflows/release.yml](../.github/workflows/release.yml) build all
+three in parallel (`AllwinnerFlasher-<version>-macos-arm64.dmg`, `-windows-x64-setup.exe`, `-linux-x64.tar.gz`, plus `SHA256SUMS.txt`) and publish them as **one** GitHub release (if any platform
 fails, no release is created at all). macOS is signed with a Developer ID and
 notarized in CI (secrets already registered — see
-[docs/release-ci.md](docs/release-ci.md) for details).
+[docs/release-ci.md](release-ci.md) for details).
 
 The local scripts still only ad-hoc sign:
 
@@ -337,7 +341,7 @@ The script refuses a dirty working tree, checks the helper's architecture, verif
 It uses `ditto -c -k --keepParent`, not `zip`. `zip(1)` does not preserve a bundle's symlinks and extended attributes, so the code signature breaks on extraction.
 
 `scripts/release-windows.ps1` does the same job for Windows — build, compile
-the [Inno Setup](docs/windows-installer.md) installer, upload to the same
+the [Inno Setup](windows-installer.md) installer, upload to the same
 tag's GitHub release.
 
 ```powershell
@@ -346,6 +350,8 @@ tag's GitHub release.
 ```
 
 ### Gatekeeper
+
+> Release DMGs built by CI are Developer ID signed and notarized and need none of this. This section only applies to ad-hoc signed apps from the local scripts (`scripts/build-app.sh`, `scripts/release.sh`).
 
 **The app is not signed or notarised with an Apple Developer ID** — it is ad-hoc signed. Downloaded, Gatekeeper refuses to run it, which was checked rather than assumed:
 
@@ -428,11 +434,13 @@ The pipeline is shared, but these are SoC-specific and have to be re-checked aga
 
 ## Credits
 
-App icon by [Icons8](https://icons8.com). Their free licence requires attribution, so the credit ships in the README and in the app's About dialog. The original is `gui/assets/icon/source_glyph.svg` (Icons8 Sticker); `gui/tool/icon/generate_icons.py` puts it on the shared plate (violet→pink gradient) from [application-release-templates](https://github.com/jejezz/application-release-templates) and writes the macOS, Windows and Linux icons in one go (`cd gui && python3 tool/icon/generate_icons.py`, needs Pillow).
+- App icon source: an [Icons8](https://icons8.com) Sticker glyph (`gui/assets/icon/source_glyph.svg`; paid plan, so no in-app credit). `gui/tool/icon/generate_icons.py` puts it on the shared plate from [application-release-templates](https://github.com/jejezz/application-release-templates) and writes the macOS, Windows and Linux icons in one go (`cd gui && python3 tool/icon/generate_icons.py`, needs Pillow).
+- Font: [SeoulNamsan](https://www.seoul.go.kr/seoul/font.do) (Seoul Metropolitan Government)
+- USB: [libusb](https://libusb.info) (LGPL-2.1) — full text in the app's "Open Source Licenses" page
 
 ## Documentation
 
-The full investigation — protocol evidence (where in the vendor sources), hardware logs, how things were verified, and **the hypotheses that were ruled out** — is in [`docs/T527-T507-FEL-EFEX-기술조사.md`](docs/T527-T507-FEL-EFEX-기술조사.md) (Korean). Start there when adding a new SoC or chasing odd behaviour.
+The full investigation — protocol evidence (where in the vendor sources), hardware logs, how things were verified, and **the hypotheses that were ruled out** — is in [`docs/T527-T507-FEL-EFEX-기술조사.md`](T527-T507-FEL-EFEX-기술조사.md) (Korean). Start there when adding a new SoC or chasing odd behaviour.
 
 ## Layout
 
@@ -450,12 +458,15 @@ The full investigation — protocol evidence (where in the vendor sources), hard
 | `gui/lib/flasher_model.dart` | Device polling, image loading, flash state |
 | `gui/lib/main.dart` | UI |
 | `gui/lib/l10n/*.arb` | Korean and English strings (generated files are not committed) |
-| `gui/lib/about.dart` | About dialog |
+| `gui/lib/about/` | About dialog (common `about_dialog.dart` + app wording in `allwinner_about.dart`), macOS app menu, extra license registration |
 | `gui/lib/troubleshoot.dart` | Windows USB driver troubleshooting dialog |
-| `gui/lib/language_setting.dart` | Saves/loads the manually picked language |
+| `gui/lib/settings/` | Theme/language settings and their menus, migration of the old language file |
+| `scripts/bump-version.sh` | Release version bump (`gui/pubspec.yaml` + `Cargo.toml`) |
+| `installer/windows/app.iss` | Windows Inno Setup script ([windows-installer.md](windows-installer.md)) |
+| `tool/readme/` | README screenshot and check tools (application-release-templates) |
 | `scripts/build-app.sh` | Build the macOS `.app`, bundle the helper, re-sign |
 | `scripts/build-app-windows.ps1` | Build for Windows, bundle the helper (`aw-tool.exe`) |
 | `scripts/release.sh` | Package a macOS release (ad-hoc signed) and publish it — local only |
 | `scripts/release-windows.ps1` | Package a Windows release (Inno Setup) and publish it — local only |
-| `.github/workflows/release.yml` | On a tag push, build macOS (signed+notarized)/Windows/Linux in parallel and publish one GitHub release ([docs/release-ci.md](docs/release-ci.md)) |
+| `.github/workflows/release.yml` | On a tag push, build macOS (signed+notarized)/Windows/Linux in parallel and publish one GitHub release ([docs/release-ci.md](release-ci.md)) |
 | `gui/tool/icon/generate_icons.py` | Generates the macOS, Windows and Linux app icons from the source glyph |

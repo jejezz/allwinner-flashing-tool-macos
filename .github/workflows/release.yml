@@ -100,7 +100,8 @@ jobs:
       # (no TODOs, real images). A pre-release tag (vX.Y.Z-rc.N) only needs
       # its structure (tagging.md §1).
       - name: README follows conventions
-        if: hashFiles('gui/tool/readme/check_readme.py') != ''
+        if: hashFiles('tool/readme/check_readme.py') != ''
+        working-directory: .
         run: |
           if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
             python3 tool/readme/check_readme.py --stage bootstrap

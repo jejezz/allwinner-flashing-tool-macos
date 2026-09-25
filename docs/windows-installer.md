@@ -86,4 +86,4 @@ gh release upload v0.1.0 dist\SHA256SUMS --clobber
 
 ## 배포 노트에 적어둘 것
 
-macOS 릴리즈 노트가 격리 해제(`xattr`) 안내를 맨 앞에 두는 것처럼, Windows 릴리즈 노트에도 SmartScreen 경고가 뜬다는 것과 "추가 정보 → 실행"으로 넘어가면 된다는 것, 그리고 실기기를 인식시키려면 Zadig로 WinUSB 바인딩이 필요하다는 것([README.md](../README.md)의 "USB 드라이버" 참조)을 적어두는 게 좋다 — 둘 다 처음 쓰는 사람이 "고장났다"고 오해하기 쉬운 지점이다.
+macOS 릴리즈 노트가 격리 해제(`xattr`) 안내를 맨 앞에 두는 것처럼, Windows 릴리즈 노트에도 SmartScreen 경고가 뜬다는 것과 "추가 정보 → 실행"으로 넘어가면 된다는 것, 그리고 실기기를 인식시키려면 Zadig로 WinUSB 바인딩이 필요하다는 것([aw-tool.md](aw-tool.md)의 "USB 드라이버" 참조)을 적어두는 게 좋다 — 둘 다 처음 쓰는 사람이 "고장났다"고 오해하기 쉬운 지점이다.

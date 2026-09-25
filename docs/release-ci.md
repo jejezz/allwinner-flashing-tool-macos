@@ -25,10 +25,10 @@ Flutter 버전은 `FLUTTER_VERSION`(3.47.1)으로 고정돼 있다.
 **하나라도 실패하면 릴리즈 자체가 생성되지 않는다.** 플랫폼별로 따로 릴리즈를
 만들지 않기 때문에 일부 자산만 올라간 릴리즈가 남는 일이 없다.
 
-**릴리즈는 초안 없이 바로 공개된다.** 워크플로는 로컬 스크립트를 호출하지 않고
-YAML 안에 직접 빌드·패키징 로직을 담고 있다 — `scripts/release.sh` /
-`scripts/release-windows.ps1`은 로컬에서 손으로 릴리즈할 때 쓸 수 있지만,
-태그를 push했을 때 도는 CI 경로와는 별개다.
+**릴리즈는 초안 없이 바로 공개된다.** 릴리즈 산출물은 이 워크플로만 만든다 — 로컬의
+`scripts/build-app.sh` / `scripts/build-app-windows.ps1`은 개발 빌드용이다 (v1.1.3까지
+있던 `scripts/release.sh` / `release-windows.ps1`은 CI와 다른 이름으로 릴리즈를 만들 수
+있어 지웠다).
 
 ## 필요한 시크릿
 
@@ -45,7 +45,7 @@ YAML 안에 직접 빌드·패키징 로직을 담고 있다 — `scripts/releas
 
 **위 macOS 시크릿 6개는 이미 저장소에 등록돼 있다** (`gh secret list`로 확인함,
 2026-09-21). 태그를 push하면 `build-macos`가 실제 Developer ID로 서명하고
-공증까지 마친 DMG를 만든다 — 로컬의 `scripts/build-app.sh`/`scripts/release.sh`는
+공증까지 마친 DMG를 만든다 — 로컬의 `scripts/build-app.sh`는
 여전히 ad-hoc(`codesign --sign -`)로만 서명하지만, CI 산출물은 그것과 다르다.
 
 인증서가 만료되거나 바뀌는 등 문제가 생겨 서명을 잠시 끄고 싶다면,

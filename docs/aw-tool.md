@@ -324,37 +324,11 @@ macOS/Windows 모두 패키징·GitHub 배포가 자동화돼 있다 — 로컬 
 서명·공증까지 마친다 (시크릿 등록 완료 — 자세한 내용은
 [docs/release-ci.md](release-ci.md) 참고).
 
-로컬 스크립트는 여전히 ad-hoc 서명만 한다:
-
-```bash
-./scripts/release.sh v0.1.0             # macOS: 빌드 → 패키징 → GitHub 릴리즈 초안
-./scripts/release.sh v0.1.0 --publish   # 초안 대신 바로 공개
-```
-
-`dist/`에 세 개를 만든다.
-
-| 산출물 | 내용 |
-|---|---|
-| `Allwinner-Flasher-<tag>-macos-arm64.zip` | 앱 (약 16 MB) |
-| `aw-tool-<tag>-macos-arm64.tar.gz` | CLI 단독 |
-| `SHA256SUMS` | 체크섬 |
-
-스크립트는 워킹 트리가 깨끗한지 확인하고, helper 아키텍처를 검사하고, 압축을 푼 뒤 서명이 여전히 유효한지 검증한 다음 태그를 밀고 `gh release create`를 부른다.
-
-`zip`이 아니라 `ditto -c -k --keepParent`를 쓴다. `zip(1)`은 번들의 심볼릭 링크와 확장 속성을 보존하지 못해 압축을 풀면 코드 서명이 깨진다.
-
-Windows는 `scripts/release-windows.ps1`이 같은 역할을 한다 (빌드 →
-[Inno Setup](windows-installer.md) 인스톨러 컴파일 → 같은 태그의 GitHub
-릴리즈에 업로드).
-
-```powershell
-.\scripts\release-windows.ps1 v0.1.0            # 빌드 → 패키징 → GitHub 릴리즈 초안/업로드
-.\scripts\release-windows.ps1 v0.1.0 -Publish   # 초안 대신 바로 공개
-```
+릴리즈 산출물은 CI만 만든다. 로컬에서는 `scripts/build-app.sh`(macOS) / `scripts/build-app-windows.ps1`(Windows)로 개발 빌드만 만든다 — v1.1.3까지 쓰던 `scripts/release.sh` / `release-windows.ps1`은 CI와 다른 이름의 산출물로 GitHub 릴리즈를 만들 수 있어서 conventions-v1 적용 때 지웠다.
 
 ### Gatekeeper
 
-> CI가 만든 릴리즈 DMG는 Developer ID로 서명·공증돼 있어 아래 절차가 필요 없다. 이 절은 로컬 스크립트(`scripts/build-app.sh`, `scripts/release.sh`)로 만든 ad-hoc 서명 앱에만 해당한다.
+> CI가 만든 릴리즈 DMG는 Developer ID로 서명·공증돼 있어 아래 절차가 필요 없다. 이 절은 로컬 스크립트(`scripts/build-app.sh`)로 만든 ad-hoc 서명 앱에만 해당한다.
 
 **이 앱은 Apple Developer ID로 서명·공증되지 않았다(ad-hoc 서명).** 내려받은 상태에서는 Gatekeeper가 실행을 막는다 — 실제로 확인했다:
 
@@ -469,7 +443,5 @@ EFEX
 | `tool/readme/` | README 스크린샷·검사 도구 (application-release-templates) |
 | `scripts/build-app.sh` | macOS `.app` 빌드 + helper 동봉 + 재서명 |
 | `scripts/build-app-windows.ps1` | Windows 빌드 + helper(`aw-tool.exe`) 동봉 |
-| `scripts/release.sh` | macOS 릴리즈 패키징(ad-hoc 서명) + GitHub 게시 — 로컬 전용 |
-| `scripts/release-windows.ps1` | Windows 릴리즈 패키징(Inno Setup) + GitHub 게시 — 로컬 전용 |
 | `.github/workflows/release.yml` | 태그 push 시 macOS(서명·공증)/Windows/Linux를 병렬 빌드해 하나의 GitHub 릴리즈로 게시 ([docs/release-ci.md](release-ci.md)) |
 | `gui/tool/icon/generate_icons.py` | 원본 글리프로 macOS·Windows·Linux 앱 아이콘 생성 |

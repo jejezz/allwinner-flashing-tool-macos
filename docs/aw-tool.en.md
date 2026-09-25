@@ -321,37 +321,11 @@ fails, no release is created at all). macOS is signed with a Developer ID and
 notarized in CI (secrets already registered — see
 [docs/release-ci.md](release-ci.md) for details).
 
-The local scripts still only ad-hoc sign:
-
-```bash
-./scripts/release.sh v0.1.0             # macOS: build → package → draft GitHub release
-./scripts/release.sh v0.1.0 --publish   # publish instead of drafting
-```
-
-Three artifacts land in `dist/`:
-
-| Artifact | Contents |
-|---|---|
-| `Allwinner-Flasher-<tag>-macos-arm64.zip` | The app (~16 MB) |
-| `aw-tool-<tag>-macos-arm64.tar.gz` | The CLI on its own |
-| `SHA256SUMS` | Checksums |
-
-The script refuses a dirty working tree, checks the helper's architecture, verifies the signature still validates after a round-trip through the archive, then pushes the tag and calls `gh release create`.
-
-It uses `ditto -c -k --keepParent`, not `zip`. `zip(1)` does not preserve a bundle's symlinks and extended attributes, so the code signature breaks on extraction.
-
-`scripts/release-windows.ps1` does the same job for Windows — build, compile
-the [Inno Setup](windows-installer.md) installer, upload to the same
-tag's GitHub release.
-
-```powershell
-.\scripts\release-windows.ps1 v0.1.0            # build → package → draft/update the GitHub release
-.\scripts\release-windows.ps1 v0.1.0 -Publish   # publish instead of drafting
-```
+Only CI builds release artifacts. Locally, `scripts/build-app.sh` (macOS) / `scripts/build-app-windows.ps1` (Windows) make development builds — the `scripts/release.sh` / `release-windows.ps1` used up to v1.1.3 could publish GitHub releases under names that differ from CI's, so they were removed when conventions-v1 was applied.
 
 ### Gatekeeper
 
-> Release DMGs built by CI are Developer ID signed and notarized and need none of this. This section only applies to ad-hoc signed apps from the local scripts (`scripts/build-app.sh`, `scripts/release.sh`).
+> Release DMGs built by CI are Developer ID signed and notarized and need none of this. This section only applies to ad-hoc signed apps from the local script (`scripts/build-app.sh`).
 
 **The app is not signed or notarised with an Apple Developer ID** — it is ad-hoc signed. Downloaded, Gatekeeper refuses to run it, which was checked rather than assumed:
 
@@ -466,7 +440,5 @@ The full investigation — protocol evidence (where in the vendor sources), hard
 | `tool/readme/` | README screenshot and check tools (application-release-templates) |
 | `scripts/build-app.sh` | Build the macOS `.app`, bundle the helper, re-sign |
 | `scripts/build-app-windows.ps1` | Build for Windows, bundle the helper (`aw-tool.exe`) |
-| `scripts/release.sh` | Package a macOS release (ad-hoc signed) and publish it — local only |
-| `scripts/release-windows.ps1` | Package a Windows release (Inno Setup) and publish it — local only |
 | `.github/workflows/release.yml` | On a tag push, build macOS (signed+notarized)/Windows/Linux in parallel and publish one GitHub release ([docs/release-ci.md](release-ci.md)) |
 | `gui/tool/icon/generate_icons.py` | Generates the macOS, Windows and Linux app icons from the source glyph |

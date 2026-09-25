@@ -1,6 +1,6 @@
 # Windows 인스톨러 만들기
 
-`scripts/build-app-windows.ps1`은 `gui\build\windows\x64\runner\Release\`에 실행 파일 폴더를 만들 뿐, 더블클릭 한 번으로 설치되는 인스톨러(`setup.exe`)는 만들지 않는다. 그 폴더를 Inno Setup 인스톨러로 패키징하는 절차를 정리한 것이 이 문서다. 보통은 태그를 push해서 GitHub Actions로 만들고([release-ci.md](release-ci.md)), 손으로 할 때는 `scripts/release-windows.ps1`(아래 단계를 자동화한 것)을 쓴다.
+`scripts/build-app-windows.ps1`은 `gui\build\windows\x64\runner\Release\`에 실행 파일 폴더를 만들 뿐, 더블클릭 한 번으로 설치되는 인스톨러(`setup.exe`)는 만들지 않는다. 그 폴더를 Inno Setup 인스톨러로 패키징하는 절차를 정리한 것이 이 문서다. 보통은 태그를 push해서 GitHub Actions로 만들고([release-ci.md](release-ci.md)), 이 문서는 CI 없이 로컬에서 인스톨러를 만들어 확인할 때의 절차다.
 
 **빌드 스크립트는 이미 저장소에 있다** — [`installer/windows/app.iss`](../installer/windows/app.iss). [application-release-templates](https://github.com/jejezz/application-release-templates) `desktop/installer/windows/app.iss`(conventions-v1)를 이 저장소 경로(`gui/`)에 맞춘 것이고, `AllwinnerFlasher-<version>-windows-x64-setup.exe`를 만든다. (v1.1.3까지 있던 WiX `.wxs`는 한 번도 컴파일해 보지 못해 규약에 따라 지웠다.)
 
@@ -51,38 +51,7 @@ winget install JRSoftware.InnoSetup
 
 ## GitHub 릴리즈에 올리기
 
-빌드한 인스톨러(`.exe`)를 macOS 릴리즈와 같은 태그에 올린다. macOS `scripts/release.sh`는 macOS 산출물만 다루므로, Windows 인스톨러는 아래처럼 수동으로 추가한다.
-
-**GitHub CLI로 (권장 — 설치돼 있지 않으면 `winget install GitHub.cli`)**
-
-macOS `release.sh`가 이미 그 버전의 릴리즈를 만들어 놓은 상태라면:
-
-```powershell
-gh release upload v0.1.0 dist\AllwinnerFlasher-1.1.4-windows-x64-setup.exe
-```
-
-아직 릴리즈 자체가 없다면 (Windows만 먼저 낼 때): (gh install -> winget install GitHub.cli)
-
-```powershell
-gh release create v0.1.0 dist\AllwinnerFlasher-1.1.4-windows-x64-setup.exe --title v0.1.0 --draft
-```
-
-`--draft`를 빼면 바로 공개된다. 초안으로 만들었다면 GitHub 웹에서 내용을 확인한 뒤 "Publish release"를 누른다.
-
-체크섬도 같이 올려두면 좋다 (macOS 릴리즈의 `SHA256SUMS`와 같은 방식):
-
-```powershell
-Get-FileHash dist\AllwinnerFlasher-1.1.4-windows-x64-setup.exe -Algorithm SHA256 |
-    ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
-    Out-File -Append dist\SHA256SUMS -Encoding ascii
-gh release upload v0.1.0 dist\SHA256SUMS --clobber
-```
-
-**GitHub 웹 UI로 (gh 설치 없이)**
-
-1. https://github.com/jejezz/allwinner-flashing-tool-macos/releases 에서 해당 태그의 릴리즈를 연다 (없으면 "Draft a new release").
-2. "Attach binaries" 영역에 `dist\AllwinnerFlasher-1.1.4-windows-x64-setup.exe`를 드래그 앤 드롭.
-3. 초안이면 "Publish release".
+손으로 올리지 않는다. 태그를 push하면 CI가 같은 스크립트로 인스톨러를 만들어 macOS·Linux 산출물, `SHA256SUMS.txt`와 함께 한 릴리즈로 올린다 ([release-ci.md](release-ci.md)).
 
 ## 배포 노트에 적어둘 것
 

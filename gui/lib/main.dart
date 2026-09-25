@@ -652,7 +652,8 @@ class _ActionButton extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     if (model.phase == Phase.flashing) {
       return FilledButton.icon(
-        style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+        style: FilledButton.styleFrom(backgroundColor: AppColors.danger)
+            .merge(AppTheme.bigButton),
         onPressed: model.cancel,
         icon: const Icon(Icons.stop_circle_outlined),
         label: Text(l10n.flashStop),
@@ -662,7 +663,7 @@ class _ActionButton extends StatelessWidget {
       style: FilledButton.styleFrom(
         backgroundColor: AppColors.accent,
         disabledBackgroundColor: AppColors.idle.withValues(alpha: 0.22),
-      ),
+      ).merge(AppTheme.bigButton),
       onPressed: model.canFlash ? onFlash : null,
       icon: const Icon(Icons.bolt),
       label: Text(

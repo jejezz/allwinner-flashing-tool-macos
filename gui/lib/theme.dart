@@ -71,6 +71,19 @@ class AppTheme {
 
   static const _fontFamily = 'SeoulNamsan';
 
+  /// The one big action on the main screen — readable from across a bench.
+  static final bigButton = FilledButton.styleFrom(
+    minimumSize: const Size.fromHeight(54),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(18)),
+    ),
+    textStyle: const TextStyle(
+      fontFamily: _fontFamily,
+      fontSize: 16,
+      fontWeight: FontWeight.w700,
+    ),
+  );
+
   static ThemeData dark() {
     const scheme = ColorScheme.dark(
       primary: AppColors.primary,
@@ -156,15 +169,15 @@ class AppTheme {
           borderRadius: BorderRadius.all(Radius.circular(AppRadius.card)),
         ),
       ),
+      // Dialog-sized by default; the full-width bench button is
+      // [AppTheme.bigButton]. A full-width default stretched every dialog's
+      // action row into a column.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(54),
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(18)),
-          ),
+          minimumSize: const Size(110, 44),
           textStyle: const TextStyle(
             fontFamily: _fontFamily,
-            fontSize: 16,
+            fontSize: 14,
             fontWeight: FontWeight.w700,
           ),
         ),

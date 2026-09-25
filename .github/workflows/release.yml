@@ -1,33 +1,142 @@
 name: Release
 
-# Adapted from https://github.com/jejezz/application-release-templates
-# (desktop/), which validates this same structure — Developer ID signing +
-# notarization included — end-to-end on a plain Flutter app. This repo
-# additionally bundles a Rust CLI helper (aw-tool) into each platform's
-# build, and macOS is Apple Silicon (arm64) only — see the "Bundle aw-tool
-# helper" step on each job and gui/macos/Runner/Configs/Release.xcconfig.
+# From jejezz/application-release-templates desktop/ @ conventions-v1.
+# Validated end-to-end (including macOS signing/notarization) on Portside and
+# Dove Zip before being generalized here. See conventions/ for the rules it
+# implements, and docs/release-ci.md for how this repo differs:
 #
-# Push a `v*.*.*` tag (e.g. v0.1.0) to build all three platforms in
-# parallel and upload each as a workflow artifact. Once every platform build
-# has succeeded, the final `release` job downloads all three artifacts and
-# creates a single GitHub Release with them attached, published immediately
-# (no draft) with auto-generated notes. If any platform build fails — including
-# Linux, which this repo's own README still marks unverified — no release is
-# created at all, so a broken Linux build blocks macOS/Windows too. See
-# docs/release-ci.md before relying on this for a real release.
+#   - the Flutter app lives in gui/ (every Flutter step runs there), next to
+#     the Rust CLI helper aw-tool at the repository root, which each
+#     platform's build bundles into the app;
+#   - macOS is Apple Silicon (arm64) only — see
+#     gui/macos/Runner/Configs/Release.xcconfig — so the DMG is
+#     *-macos-arm64.dmg rather than the template's *-macos-universal.dmg.
+#
+# Push a `vX.Y.Z` (or `vX.Y.Z-rc.N`) tag to:
+#   1. check  — the tag must equal gui/pubspec.yaml's version (and
+#               Cargo.toml's), and every translation must be present
+#               (conventions/versioning.md, localization.md)
+#   2. build  — macOS / Windows / Linux in parallel
+#   3. release — only once all three succeed, one GitHub Release with every
+#               asset plus SHA256SUMS.txt. If any build fails, nothing is
+#               published.
+#
+# workflow_dispatch runs steps 1–2 only (build check); it never creates a
+# Release (conventions/tagging.md §3).
 on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
 
-permissions:
-  contents: write
+env:
+  # Pin Flutter so re-running a tag rebuilds the same thing
+  # (conventions/workflow.md §3). Bump it in a PR.
+  FLUTTER_VERSION: "3.47.1"
+
+defaults:
+  run:
+    working-directory: gui
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      display_name: ${{ steps.meta.outputs.display_name }}
+      file_name: ${{ steps.meta.outputs.file_name }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Names come from conventions/identity.md §2: the display name's single
+      # source is PRODUCT_NAME in macos/Runner/Configs/AppInfo.xcconfig
+      # (pubspec.yaml's `name` is the snake_case package id), and the file
+      # name is the display name without spaces.
+      - name: Read version and names
+        id: meta
+        run: |
+          PUBSPEC_VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed -E 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/')
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$VERSION" != "$PUBSPEC_VERSION" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match gui/pubspec.yaml version $PUBSPEC_VERSION"
+              exit 1
+            fi
+          else
+            VERSION="$PUBSPEC_VERSION"
+          fi
+
+          # aw-tool reports its own version; scripts/bump-version.sh bumps
+          # both in the same release commit.
+          CARGO_VERSION=$(grep -m1 -E '^version[[:space:]]*=' ../Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+          if [ "$CARGO_VERSION" != "$PUBSPEC_VERSION" ]; then
+            echo "::error::Cargo.toml version $CARGO_VERSION does not match gui/pubspec.yaml version $PUBSPEC_VERSION"
+            exit 1
+          fi
+
+          DISPLAY_NAME=$(grep '^PRODUCT_NAME' macos/Runner/Configs/AppInfo.xcconfig | head -1 | sed -E 's/^PRODUCT_NAME[[:space:]]*=[[:space:]]*//' | tr -d '\r')
+          test -n "$DISPLAY_NAME"
+          FILE_NAME=$(printf '%s' "$DISPLAY_NAME" | tr -cd '[:alnum:]')
+
+          # lib/app_identity.dart (common/ template) repeats the display name
+          # for the About dialog — keep the two from drifting apart.
+          if [ -f lib/app_identity.dart ] && ! grep -qF "displayName = '$DISPLAY_NAME'" lib/app_identity.dart; then
+            echo "::error::gui/lib/app_identity.dart displayName does not match PRODUCT_NAME \"$DISPLAY_NAME\""
+            exit 1
+          fi
+
+          case "$VERSION" in *-*) PRERELEASE=true ;; *) PRERELEASE=false ;; esac
+
+          {
+            echo "version=$VERSION"
+            echo "display_name=$DISPLAY_NAME"
+            echo "file_name=$FILE_NAME"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "$DISPLAY_NAME $VERSION → $FILE_NAME-$VERSION-* (prerelease: $PRERELEASE)"
+
+      # conventions/readme-guide.md — a real release needs a finished README
+      # (no TODOs, real images). A pre-release tag (vX.Y.Z-rc.N) only needs
+      # its structure (tagging.md §1).
+      - name: README follows conventions
+        if: hashFiles('gui/tool/readme/check_readme.py') != ''
+        run: |
+          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+            python3 tool/readme/check_readme.py --stage bootstrap
+          else
+            python3 tool/readme/check_readme.py
+          fi
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # Needs `untranslated-messages-file: build/untranslated.json` in
+      # l10n.yaml (conventions/localization.md §2). gen-l10n writes `{}` (or
+      # nothing) when every locale has every key.
+      - name: Every translation present
+        run: |
+          flutter pub get
+          # gen-l10n won't create the directory for the report itself.
+          mkdir -p build
+          flutter gen-l10n
+          if [ -s build/untranslated.json ] && [ "$(tr -d '[:space:]' < build/untranslated.json)" != "{}" ]; then
+            echo "::error::Untranslated messages:"
+            cat build/untranslated.json
+            exit 1
+          fi
+
   build-macos:
-    # A recent runner — some dependencies need an Xcode SDK newer than older
-    # runner images default to.
+    needs: check
+    # Name the runner explicitly — macos-latest changes Xcode SDKs without
+    # notice (conventions/workflow.md §3).
     runs-on: macos-26
+    env:
+      FILE_NAME: ${{ needs.check.outputs.file_name }}
+      VERSION: ${{ needs.check.outputs.version }}
+      DISPLAY_NAME: ${{ needs.check.outputs.display_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -35,44 +144,39 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install native build tools
         run: brew install create-dmg
 
-      - name: Install Flutter dependencies
-        working-directory: gui
-        run: flutter pub get
-
       - name: Build aw-tool (vendored libusb)
+        working-directory: .
         run: cargo build --release --features vendored
 
+      - run: flutter pub get
+
       - run: flutter build macos --release
-        working-directory: gui
 
       # Adding this after Flutter's own build (and before signing, so the
-      # helper is covered by the --deep sign below) mirrors what
-      # scripts/build-app.sh does for local builds.
+      # helper is signed along with the app) mirrors scripts/build-app.sh.
       - name: Bundle aw-tool helper
         run: |
-          APP_PATH="gui/build/macos/Build/Products/Release/$(ls gui/build/macos/Build/Products/Release | grep '\.app$' | head -1)"
+          APP_PATH="build/macos/Build/Products/Release/$(ls build/macos/Build/Products/Release | grep '\.app$' | head -1)"
 
-          ARCH="$(lipo -archs target/release/aw-tool)"
+          ARCH="$(lipo -archs ../target/release/aw-tool)"
           if [ "$ARCH" != "arm64" ]; then
-            echo "unexpected helper architecture: $ARCH" >&2
+            echo "::error::unexpected aw-tool architecture: $ARCH"
             exit 1
           fi
 
-          cp target/release/aw-tool "$APP_PATH/Contents/Resources/aw-tool"
+          cp ../target/release/aw-tool "$APP_PATH/Contents/Resources/aw-tool"
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
       # Requires the MACOS_CERTIFICATE_* / MACOS_KEYCHAIN_PASSWORD secrets
-      # below (see docs/release-ci.md). If you don't have a Developer ID
-      # certificate yet, delete this step and the "Notarize DMG" step — the
-      # DMG will ship ad-hoc signed instead (as it already does locally via
-      # scripts/build-app.sh), and Gatekeeper will show an "unidentified
-      # developer" warning on first launch.
+      # (docs/release-ci.md). Without a Developer ID certificate, delete this
+      # step, "Sign app" and "Notarize DMG" — the DMG then ships ad-hoc
+      # signed and Gatekeeper warns "unidentified developer" on first launch.
       - name: Import Developer ID certificate
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
@@ -101,30 +205,28 @@ jobs:
 
           # Sign the bundled aw-tool helper explicitly, before the outer app.
           # Relying on the app's own `--deep` alone has been seen to leave a
-          # loose Mach-O binary sitting in Resources/ (as opposed to a
-          # .framework `--deep` normally walks into) without a secure
-          # timestamp, which notarization then rejects outright as "Invalid"
-          # with no further explanation.
+          # loose Mach-O binary sitting in Resources/ without a secure
+          # timestamp, which notarization then rejects as "Invalid".
           codesign --force --options runtime --timestamp \
             --sign "$IDENTITY" "$APP_PATH/Contents/Resources/aw-tool"
 
           codesign --force --deep --options runtime --timestamp \
-            --entitlements gui/macos/Runner/Release.entitlements \
+            --entitlements macos/Runner/Release.entitlements \
             --sign "$IDENTITY" "$APP_PATH"
 
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
+      # conventions/packaging.md §1: <FileName>-<version>-macos-<arch>.dmg —
+      # arm64 here, because aw-tool is built for the runner's architecture.
       - name: Package DMG
         run: |
-          APP_NAME=$(basename "$APP_PATH" .app)
-          mkdir -p dist
-          DMG_PATH="dist/${APP_NAME}-${{ github.ref_name }}.dmg"
+          DMG_PATH="${FILE_NAME}-${VERSION}-macos-arm64.dmg"
 
           # create-dmg is known to sometimes exit non-zero over unrelated
           # warnings even after producing a working DMG, so don't treat that
           # as failure — just check the file actually got created.
           create-dmg \
-            --volname "$APP_NAME" \
+            --volname "$DISPLAY_NAME" \
             --window-size 500 300 \
             --icon-size 100 \
             --app-drop-link 380 120 \
@@ -132,19 +234,16 @@ jobs:
             "$APP_PATH" || true
 
           test -f "$DMG_PATH"
-          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
+          echo "DMG_PATH=gui/$DMG_PATH" >> "$GITHUB_ENV"
 
       # APPLE_ID_PASSWORD must be an app-specific password generated at
       # appleid.apple.com — your regular account password will not work.
       #
-      # `--wait` only waits for processing to finish; it exits 0 whether
-      # Apple accepted or rejected the submission, so a rejected ("Invalid")
-      # submission would otherwise sail past this step and fail later, more
-      # confusingly, at `stapler staple` (which has no ticket to attach).
-      # Checking the status explicitly turns that into a clear failure here,
-      # and the next step prints *why* it was rejected.
+      # `--wait` exits 0 whether Apple accepted or rejected the submission,
+      # so check the status explicitly; the next step prints why it failed.
       - name: Notarize DMG
         id: notarize
+        working-directory: .
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
@@ -162,7 +261,7 @@ jobs:
           echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
 
           if [ "$STATUS" != "Accepted" ]; then
-            echo "notarization was $STATUS, not Accepted — see the next step's log" >&2
+            echo "::error::notarization was $STATUS, not Accepted — see the next step's log"
             exit 1
           fi
 
@@ -191,7 +290,12 @@ jobs:
           if-no-files-found: error
 
   build-windows:
+    needs: check
     runs-on: windows-latest
+    env:
+      FILE_NAME: ${{ needs.check.outputs.file_name }}
+      VERSION: ${{ needs.check.outputs.version }}
+      DISPLAY_NAME: ${{ needs.check.outputs.display_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -199,56 +303,63 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Install Flutter dependencies
-        working-directory: gui
-        run: flutter pub get
-
       - name: Build aw-tool (vendored libusb)
+        working-directory: .
         run: cargo build --release --features vendored
 
+      - run: flutter pub get
+
       - run: flutter build windows --release
-        working-directory: gui
 
       - name: Bundle aw-tool helper
         shell: bash
-        run: cp target/release/aw-tool.exe gui/build/windows/x64/runner/Release/aw-tool.exe
+        run: cp ../target/release/aw-tool.exe build/windows/x64/runner/Release/aw-tool.exe
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
-      # Only the version is CI-injected — unlike the template, this app's
-      # name and exe name are hardcoded in installer/windows/aw-flasher.iss
-      # rather than read from pubspec.yaml/CMakeLists.txt, since pubspec's
-      # `name:` here (aw_flasher) is the Dart package name, not the "Allwinner
-      # Flasher" display name.
+      # Everything installer/windows/app.iss needs is passed in, so only
+      # AppId (a GUID, fixed since v0.1.0) and the repository URL live there.
       - name: Package installer
         shell: bash
-        # MSYS_NO_PATHCONV: Git Bash's MSYS layer otherwise "helpfully"
-        # rewrites any /-leading argument as a Windows path before exec'ing a
-        # native .exe, which mangles `/DMyAppVersion=...` into garbage and
-        # makes ISCC see it as a second script filename ("You may not
-        # specify more than one script filename.").
+        working-directory: .
+        # Git Bash would treat ISCC's /D... switches as POSIX paths and
+        # rewrite them into Windows paths, so ISCC sees extra script file
+        # names ("You may not specify more than one script filename"). Pass
+        # the arguments through unchanged.
         env:
-          MSYS_NO_PATHCONV: 1
+          MSYS_NO_PATHCONV: "1"
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
+          # tr: the Windows checkout may have CRLF line endings.
+          BINARY_NAME=$(grep -oE 'set\(BINARY_NAME "[^"]+"\)' gui/windows/CMakeLists.txt | sed -E 's/.*"(.*)".*/\1/' | tr -d '\r')
+          test -n "$BINARY_NAME"
 
+          # VersionInfoVersion only takes digits: 1.5.0-rc.1 -> 1.5.0
           "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+            "/DMyAppName=$DISPLAY_NAME" \
+            "/DMyFileName=$FILE_NAME" \
             "/DMyAppVersion=$VERSION" \
-            installer/windows/aw-flasher.iss
+            "/DMyAppNumericVersion=${VERSION%%-*}" \
+            "/DMyAppExeName=$BINARY_NAME.exe" \
+            installer/windows/app.iss
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist/*Setup-*.exe
+          path: dist/*-windows-x64-setup.exe
           if-no-files-found: error
 
   build-linux:
+    needs: check
     runs-on: ubuntu-latest
+    env:
+      FILE_NAME: ${{ needs.check.outputs.file_name }}
+      VERSION: ${{ needs.check.outputs.version }}
+      DISPLAY_NAME: ${{ needs.check.outputs.display_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -256,58 +367,112 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       # Standard toolchain flutter doctor recommends for Linux desktop
-      # builds, plus libusb1.0's headers for aw-tool's non-vendored build
-      # (Linux links the distro's libusb dynamically — see README.md's
-      # "Linux" section; unlike macOS/Windows this is not `--features
-      # vendored`).
+      # builds, plus libusb's headers for aw-tool's non-vendored build (Linux
+      # links the distro's libusb dynamically — see docs/aw-tool.md "Linux").
       - name: Install native build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libusb-1.0-0-dev
 
-      - name: Install Flutter dependencies
-        working-directory: gui
-        run: flutter pub get
-
       - name: Build aw-tool
+        working-directory: .
         run: cargo build --release
 
-      - run: flutter build linux --release
-        working-directory: gui
+      - run: flutter pub get
 
+      - run: flutter build linux --release
+
+      # conventions/packaging.md §4: the bundle plus an icon, a .desktop
+      # entry and linux/install.sh, which puts the app under ~/.local so it
+      # shows up in the desktop's app launcher. aw-tool sits next to the
+      # binary, where the app looks for it.
       - name: Package tarball
         run: |
-          STAGE_DIR="aw_flasher"
-          rm -rf "$STAGE_DIR"
-          cp -r gui/build/linux/x64/release/bundle "$STAGE_DIR"
-          cp target/release/aw-tool "$STAGE_DIR/aw-tool"
+          BINARY_NAME=$(grep -oE 'set\(BINARY_NAME "[^"]+"\)' linux/CMakeLists.txt | sed -E 's/.*"(.*)".*/\1/')
+          APP_ID=$(grep -oE 'set\(APPLICATION_ID "[^"]+"\)' linux/CMakeLists.txt | sed -E 's/.*"(.*)".*/\1/')
+          test -n "$BINARY_NAME"
+          test -n "$APP_ID"
+          case "$APP_ID" in com.example.*) echo "::error::linux/CMakeLists.txt APPLICATION_ID is still $APP_ID (conventions/identity.md §3)"; exit 1 ;; esac
 
-          tar czf "aw_flasher-${{ github.ref_name }}-linux-x64.tar.gz" "$STAGE_DIR"
+          # 512px, written by tool/icon/generate_icons.py.
+          ICON=linux/runner/resources/app_icon.png
+          test -f "$ICON" || { echo "::error::$ICON missing — run tool/icon/generate_icons.py"; exit 1; }
+
+          STAGE_DIR="$FILE_NAME"
+          rm -rf "$STAGE_DIR"
+          cp -r build/linux/x64/release/bundle "$STAGE_DIR"
+          cp ../target/release/aw-tool "$STAGE_DIR/aw-tool"
+
+          mkdir -p "$STAGE_DIR/share/icons/hicolor/512x512/apps" "$STAGE_DIR/share/applications"
+          cp "$ICON" "$STAGE_DIR/share/icons/hicolor/512x512/apps/$APP_ID.png"
+
+          # The .desktop file's name must equal APPLICATION_ID so GNOME ties
+          # the running window to it (StartupWMClass).
+          cat > "$STAGE_DIR/share/applications/$APP_ID.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=$DISPLAY_NAME
+          Exec="@INSTALL_DIR@/$BINARY_NAME"
+          Icon=$APP_ID
+          StartupWMClass=$APP_ID
+          Terminal=false
+          Categories=Utility;Development;
+          EOF
+          sed -i 's/^[[:space:]]*//' "$STAGE_DIR/share/applications/$APP_ID.desktop"
+
+          sed -e "s|@FILE_NAME@|$FILE_NAME|g" -e "s|@APP_ID@|$APP_ID|g" \
+            linux/install.sh > "$STAGE_DIR/install.sh"
+          chmod +x "$STAGE_DIR/install.sh"
+
+          tar czf "${FILE_NAME}-${VERSION}-linux-x64.tar.gz" "$STAGE_DIR"
 
       - uses: actions/upload-artifact@v4
         with:
           name: linux-tarball
-          path: "*-linux-x64.tar.gz"
+          path: "gui/*-linux-x64.tar.gz"
           if-no-files-found: error
 
   release:
+    # Tag pushes only — a manual run is a build check (conventions/tagging.md §3).
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
-    needs: [build-macos, build-windows, build-linux]
+    needs: [check, build-macos, build-windows, build-linux]
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: .
     steps:
+      # For .github/release-notes-header.md.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      # Title "<Display Name> vX.Y.Z"; notes = the install-guide header
+      # followed by GitHub's generated PR list (conventions/workflow.md §4).
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          DISPLAY_NAME: ${{ needs.check.outputs.display_name }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
         run: |
-          gh release create "${{ github.ref_name }}" dist/* \
-            --title "${{ github.ref_name }}" \
-            --generate-notes
+          ARGS=(--title "$DISPLAY_NAME $GITHUB_REF_NAME" --generate-notes)
+          if [ -f .github/release-notes-header.md ]; then
+            ARGS+=(--notes-file .github/release-notes-header.md)
+          fi
+          if [ "$PRERELEASE" = "true" ]; then
+            ARGS+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* "${ARGS[@]}"

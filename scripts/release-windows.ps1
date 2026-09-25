@@ -5,14 +5,14 @@
 #   .\scripts\release-windows.ps1 v0.1.0 -Publish   # ...and publish it immediately
 #
 # Produces, under dist\:
-#   AllwinnerFlasherSetup-<version>.exe   the Inno Setup installer
+#   AllwinnerFlasher-<version>-windows-x64-setup.exe   the Inno Setup installer
 #   SHA256SUMS-windows
 #
 # Requires ISCC.exe (Inno Setup) on PATH or at its default install location,
 # and `gh` authenticated (GH_TOKEN in CI).
 #
 # The version baked into the installer comes from the tag, not from
-# installer/windows/aw-flasher.iss — passed via `ISCC /DMyAppVersion=x.y.z`,
+# installer/windows/app.iss — passed via `ISCC /DMyAppVersion=x.y.z`,
 # which the .iss only falls back away from when nothing overrides it.
 
 param(
@@ -58,10 +58,10 @@ try {
     if (-not (Test-Path $iscc)) {
         throw "ISCC.exe not found — install Inno Setup (winget install JRSoftware.InnoSetup)"
     }
-    & $iscc "/DMyAppVersion=$version" "$root\installer\windows\aw-flasher.iss"
+    & $iscc "/DMyAppVersion=$version" "/DMyAppNumericVersion=$($version -replace '-.*','')" "$root\installer\windows\app.iss"
     if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
-    $installer = Join-Path $dist "AllwinnerFlasherSetup-$version.exe"
+    $installer = Join-Path $dist "AllwinnerFlasher-$version-windows-x64-setup.exe"
     if (-not (Test-Path $installer)) {
         throw "expected installer not found: $installer"
     }

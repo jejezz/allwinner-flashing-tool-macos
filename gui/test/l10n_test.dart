@@ -1,5 +1,7 @@
-import 'package:aw_flasher/about.dart';
+import 'package:aw_flasher/about/allwinner_about.dart';
+import 'package:aw_flasher/app_identity.dart';
 import 'package:aw_flasher/l10n/app_localizations.dart';
+import 'package:aw_flasher/settings/app_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -12,6 +14,7 @@ Future<BuildContext> _host(WidgetTester tester, Locale locale) async {
       locale: locale,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      localeResolutionCallback: AppSettings.resolveLocale,
       home: Builder(
         builder: (context) {
           captured = context;
@@ -64,22 +67,22 @@ void main() {
       buildNumber: '65',
       buildSignature: '',
     );
-    for (final (locale, needle) in [
-      (const Locale('ko'), 'PhoenixSuit'),
-      (const Locale('en'), 'PhoenixSuit'),
+    for (final (locale, version, close) in [
+      (const Locale('ko'), '버전 9.8.7 (빌드 65)', '닫기'),
+      (const Locale('en'), 'Version 9.8.7 (build 65)', 'Close'),
     ]) {
       final context = await _host(tester, locale);
-      showAboutSheet(context);
+      showFlasherAbout(context);
       await tester.pumpAndSettle();
 
-      expect(find.text('Allwinner Flasher'), findsOneWidget);
-      expect(find.textContaining(needle), findsOneWidget);
-      expect(find.text('© 2026 jyahn'), findsOneWidget);
-      expect(find.textContaining('9.8.7+65'), findsOneWidget);
-      expect(find.textContaining('MIT'), findsOneWidget);
-      expect(find.textContaining('GitHub'), findsOneWidget);
+      expect(find.text(AppIdentity.displayName), findsOneWidget);
+      expect(find.textContaining('PhoenixSuit'), findsOneWidget);
+      expect(find.text(AppIdentity.copyright), findsOneWidget);
+      expect(find.text(version), findsOneWidget);
+      expect(find.text('MIT License'), findsOneWidget);
+      expect(find.text('GitHub'), findsOneWidget);
 
-      await tester.tap(find.text('OK'));
+      await tester.tap(find.text(close));
       await tester.pumpAndSettle();
     }
   });

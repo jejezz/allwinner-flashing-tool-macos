@@ -2,73 +2,129 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 
-import 'about.dart';
+import 'about/allwinner_about.dart';
+import 'about/app_menu_bar.dart';
+import 'about/extra_licenses.dart';
+import 'app_identity.dart';
 import 'aw_tool.dart';
 import 'flasher_model.dart';
 import 'l10n/app_localizations.dart';
-import 'language_setting.dart';
+import 'settings/app_settings.dart';
+import 'settings/legacy_language_file.dart';
+import 'settings/settings_menus.dart';
 import 'theme.dart';
 import 'troubleshoot.dart';
 import 'widgets.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // We ship without the App Sandbox (internal tool needing raw USB), so the
   // app does not declare the user-selected-file entitlements that file_picker
   // checks for. Without this, its own pre-flight check blocks the dialog.
   FilePicker.skipEntitlementsChecks();
-  runApp(const FlasherApp());
+  registerExtraLicenses();
+
+  await windowManager.ensureInitialized();
+  // The layout stacks a device card, the partition table, options, progress
+  // and a log pane; anything much shorter clips the log to a couple of lines.
+  const options = WindowOptions(
+    size: Size(960, 760),
+    minimumSize: Size(720, 600),
+    center: true,
+    title: AppIdentity.displayName,
+  );
+  await windowManager.waitUntilReadyToShow(options, () async {
+    await windowManager.show();
+    await windowManager.focus();
+  });
+
+  final settings = await AppSettings.load();
+  await migrateLegacyLanguageFile(settings);
+  runApp(FlasherApp(settings: settings));
 }
 
 class FlasherApp extends StatefulWidget {
-  const FlasherApp({super.key});
+  const FlasherApp({super.key, required this.settings});
+
+  final AppSettings settings;
 
   @override
   State<FlasherApp> createState() => _FlasherAppState();
 }
 
-class _FlasherAppState extends State<FlasherApp> {
-  // Null means "follow the system language", the default until the user
-  // picks one from the header button.
-  String? _languageCode = LanguageSetting.load();
+class _FlasherAppState extends State<FlasherApp> with WidgetsBindingObserver {
+  final _navigatorKey = GlobalKey<NavigatorState>();
 
-  void _setLanguage(String? code) {
-    setState(() => _languageCode = code);
-    LanguageSetting.save(code);
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    widget.settings.addListener(_syncWindowBrightness);
+    _syncWindowBrightness();
+  }
+
+  @override
+  void dispose() {
+    widget.settings.removeListener(_syncWindowBrightness);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Picking dark in the app while the OS is light would otherwise leave a
+  // light title bar above a dark window (conventions theming.md §4).
+  @override
+  void didChangePlatformBrightness() => _syncWindowBrightness();
+
+  void _syncWindowBrightness() {
+    if (Platform.isLinux) return;
+    final brightness = switch (widget.settings.themeMode) {
+      ThemeMode.light => Brightness.light,
+      ThemeMode.dark => Brightness.dark,
+      ThemeMode.system =>
+        WidgetsBinding.instance.platformDispatcher.platformBrightness,
+    };
+    windowManager.setBrightness(brightness);
+  }
+
+  void _showAbout() {
+    final context = _navigatorKey.currentContext;
+    if (context != null) showFlasherAbout(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      // The product name is the same in both languages, so it is not in the
-      // ARB files.
-      title: 'Allwinner Flasher',
-      debugShowCheckedModeBanner: false,
-      locale: _languageCode == null ? null : Locale(_languageCode!),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.system,
-      home: HomePage(
-        languageCode: _languageCode,
-        onLanguageChanged: _setLanguage,
+    return AppSettingsScope(
+      settings: widget.settings,
+      child: ListenableBuilder(
+        listenable: widget.settings,
+        builder: (context, _) => MaterialApp(
+          navigatorKey: _navigatorKey,
+          // The product name is the same in both languages, so it is not in
+          // the ARB files.
+          title: AppIdentity.displayName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          themeMode: widget.settings.themeMode,
+          locale: widget.settings.locale,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          localeResolutionCallback: AppSettings.resolveLocale,
+          builder: (context, child) =>
+              AppMenuBar(onAbout: _showAbout, child: child!),
+          home: HomePage(onAbout: _showAbout),
+        ),
       ),
     );
   }
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({
-    super.key,
-    required this.languageCode,
-    required this.onLanguageChanged,
-  });
+  const HomePage({super.key, required this.onAbout});
 
-  /// Currently active manual override, or null while following the system.
-  final String? languageCode;
-  final ValueChanged<String?> onLanguageChanged;
+  final VoidCallback onAbout;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -140,11 +196,7 @@ class _HomePageState extends State<HomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _Header(
-                        model: model,
-                        languageCode: widget.languageCode,
-                        onLanguageChanged: widget.onLanguageChanged,
-                      ),
+                      _Header(model: model, onAbout: widget.onAbout),
                       const SizedBox(height: 18),
                       Expanded(
                         child: Row(
@@ -194,23 +246,11 @@ String deviceShortLabel(AppLocalizations l10n, DeviceStatus d) =>
       DeviceState.none => l10n.deviceShortNone,
     };
 
-/// Menu value standing in for "no manual override" in the language picker —
-/// see the comment at its use site for why this can't just be null.
-const _kSystemLanguage = 'system';
-
 class _Header extends StatelessWidget {
-  const _Header({
-    required this.model,
-    required this.languageCode,
-    required this.onLanguageChanged,
-  });
+  const _Header({required this.model, required this.onAbout});
 
   final FlasherModel model;
-
-  /// Currently active manual language override, or null while following the
-  /// system language.
-  final String? languageCode;
-  final ValueChanged<String?> onLanguageChanged;
+  final VoidCallback onAbout;
 
   @override
   Widget build(BuildContext context) {
@@ -231,7 +271,7 @@ class _Header extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Allwinner Flasher', style: theme.textTheme.titleLarge),
+              Text(AppIdentity.displayName, style: theme.textTheme.titleLarge),
               const SizedBox(height: 2),
               Text(l10n.appSubtitle, style: theme.textTheme.labelSmall),
             ],
@@ -244,41 +284,10 @@ class _Header extends StatelessWidget {
           pulsing: !device.connected,
         ),
         const SizedBox(width: 10),
-        // Language names are shown in themselves (한국어, not "Korean" or
-        // its English-locale translation), the way a language picker
-        // conventionally does — so it stays findable even by someone who
-        // can't read whichever language the app currently happens to be in.
-        //
-        // The menu's value type is String, not String? — PopupMenuButton
-        // can't tell "picked the item valued null" apart from "dismissed
-        // the menu without picking anything" (both arrive as null from
-        // showMenu), so a null-valued item silently never fires onSelected.
-        // _kSystemLanguage stands in for "no override" instead.
-        PopupMenuButton<String>(
-          tooltip: l10n.languageTooltip,
-          icon: const Icon(Icons.language, size: 20),
-          onSelected: (value) => onLanguageChanged(
-            value == _kSystemLanguage ? null : value,
-          ),
-          itemBuilder: (context) => [
-            CheckedPopupMenuItem(
-              value: _kSystemLanguage,
-              checked: languageCode == null,
-              child: Text(l10n.languageSystem),
-            ),
-            const PopupMenuDivider(),
-            CheckedPopupMenuItem(
-              value: 'ko',
-              checked: languageCode == 'ko',
-              child: const Text('한국어'),
-            ),
-            CheckedPopupMenuItem(
-              value: 'en',
-              checked: languageCode == 'en',
-              child: const Text('English'),
-            ),
-          ],
-        ),
+        // Order at the right end: … | theme | language | about
+        // (conventions localization.md §4, theming.md §3).
+        const ThemeMenuButton(),
+        const LanguageMenuButton(),
         // WinUSB driver binding trips up almost everyone the first time on
         // Windows — the board looks fine in Device Manager and the app still
         // can't see it — so the fix is one click away here, not just in the
@@ -292,7 +301,7 @@ class _Header extends StatelessWidget {
         IconButton(
           tooltip: l10n.aboutTooltip,
           icon: const Icon(Icons.info_outline, size: 20),
-          onPressed: () => showAboutSheet(context),
+          onPressed: onAbout,
         ),
       ],
     );
@@ -750,6 +759,7 @@ class _ProgressCard extends StatelessWidget {
                   current ?? l10n.progressPreparing,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontFamily: current == null ? null : kMonoFamily,
+                    fontFamilyFallback: current == null ? null : kMonoFallback,
                     fontSize: current == null ? null : 15,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -890,6 +900,7 @@ class _PartitionRow extends StatelessWidget {
 
     final mono = TextStyle(
       fontFamily: kMonoFamily,
+      fontFamilyFallback: kMonoFallback,
       fontSize: 11,
       color: selected ? AppColors.hi(context) : AppColors.mid(context),
     );
@@ -1082,6 +1093,7 @@ class _LogCardState extends State<_LogCard> {
                             widget.lines[i],
                             style: TextStyle(
                               fontFamily: kMonoFamily,
+                              fontFamilyFallback: kMonoFallback,
                               fontSize: 11,
                               height: 1.35,
                               color: AppColors.mid(context),
@@ -1196,7 +1208,11 @@ class _KeptList extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             names.join(', '),
-            style: const TextStyle(fontFamily: kMonoFamily, fontSize: 11.5),
+            style: const TextStyle(
+              fontFamily: kMonoFamily,
+              fontFamilyFallback: kMonoFallback,
+              fontSize: 11.5,
+            ),
           ),
         ],
       ),

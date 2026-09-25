@@ -52,8 +52,19 @@ class AppRadius {
 
 /// Monospace stack for anything the user compares character by character —
 /// sector offsets, partition names, log lines. SeoulNamsan is proportional and
-/// misaligns columns of hex.
+/// misaligns columns of hex. Menlo is macOS-only, so always pass
+/// [kMonoFallback] too ('monospace' doesn't resolve on desktop).
 const kMonoFamily = 'Menlo';
+const kMonoFallback = [
+  'SF Mono', 'Consolas', 'Cascadia Mono', 'DejaVu Sans Mono', //
+  'Noto Sans Mono', 'Courier New',
+];
+
+/// Hangul and symbols SeoulNamsan lacks go to the OS's Korean font
+/// (conventions fonts.md §2).
+const kFontFallback = [
+  'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR', 'Noto Sans KR', //
+];
 
 class AppTheme {
   const AppTheme._();
@@ -100,6 +111,7 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       fontFamily: _fontFamily,
+      fontFamilyFallback: kFontFallback,
       scaffoldBackgroundColor: background,
       canvasColor: background,
       splashFactory: InkSparkle.splashFactory,

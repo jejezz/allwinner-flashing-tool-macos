@@ -398,7 +398,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = art.zoomon.awflasher.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/aw_flasher.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/aw_flasher";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Allwinner Flasher.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Allwinner Flasher";
 			};
 			name = Debug;
 		};
@@ -412,7 +412,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = art.zoomon.awflasher.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/aw_flasher.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/aw_flasher";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Allwinner Flasher.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Allwinner Flasher";
 			};
 			name = Release;
 		};
@@ -426,7 +426,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = art.zoomon.awflasher.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/aw_flasher.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/aw_flasher";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Allwinner Flasher.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Allwinner Flasher";
 			};
 			name = Profile;
 		};

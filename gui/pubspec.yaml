@@ -40,6 +40,8 @@ dependencies:
   intl: any
   url_launcher: ^6.3.2
   package_info_plus: ^10.2.1
+  shared_preferences: ^2.5.5
+  window_manager: ^0.5.2
 
 dev_dependencies:
   flutter_test:
@@ -68,13 +70,13 @@ flutter:
 
   assets:
     - assets/phoenix.png
+    - assets/icon/app_icon.png
+    - assets/licenses/
 
   # Shared with the Saturn client so the tools look like one family.
   fonts:
     - family: SeoulNamsan
       fonts:
-        - asset: assets/fonts/seoul_namsan_light.ttf
-          weight: 300
         - asset: assets/fonts/seoul_namsan_regular.ttf
           weight: 400
         - asset: assets/fonts/seoul_namsan_bold.ttf

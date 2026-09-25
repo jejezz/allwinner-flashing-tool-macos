@@ -59,7 +59,11 @@ class _TroubleshootDialog extends StatelessWidget {
                 ),
                 child: const Text(
                   'Error: Allwinner USB FEL device (1f3a:efe8) not found',
-                  style: TextStyle(fontFamily: kMonoFamily, fontSize: 11.5),
+                  style: TextStyle(
+                    fontFamily: kMonoFamily,
+                    fontFamilyFallback: kMonoFallback,
+                    fontSize: 11.5,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -120,7 +124,7 @@ class _TroubleshootDialog extends StatelessWidget {
             minimumSize: const Size(110, 44),
           ),
           onPressed: () => Navigator.pop(context),
-          child: const Text('OK'),
+          child: Text(l10n.commonClose),
         ),
       ],
     );

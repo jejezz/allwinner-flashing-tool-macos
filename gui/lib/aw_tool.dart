@@ -37,8 +37,9 @@ class AwTool {
     }
 
     throw AwToolMissing(
-      'aw-tool 실행 파일을 찾지 못했습니다.\n'
-      '개발 중이라면 저장소 루트에서 `cargo build --release`를 먼저 실행하세요.',
+      // Not shown as-is: the UI shows the localized toolMissingBody.
+      'aw-tool executable not found next to the app or under target/ — '
+      'run `cargo build --release` at the repository root.',
     );
   }
 

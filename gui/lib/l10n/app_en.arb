@@ -1,72 +1,44 @@
 {
   "@@locale": "en",
-
   "appSubtitle": "T507 / T527 · FEL/EFEX",
-
   "deviceFel": "FEL mode",
   "deviceFelWithSoc": "FEL mode (soc 0x{soc})",
-  "@deviceFelWithSoc": {
-    "placeholders": { "soc": { "type": "String" } }
-  },
   "deviceEfex": "EFEX mode",
   "deviceWaiting": "Waiting for a board",
   "deviceShortNone": "Not connected",
   "deviceReady": "Ready to flash",
   "deviceHint": "Hold the FEL button (or pin) while connecting power",
-
   "imageTitle": "Firmware image",
   "imageHint": "Choose a .img file",
   "imageLoading": "Reading partition table…",
   "imageSummary": "{selected} of {total} partitions will be written",
-  "@imageSummary": {
-    "placeholders": {
-      "selected": { "type": "int" },
-      "total": { "type": "int" }
-    }
-  },
   "choose": "Choose",
   "change": "Change",
   "pickerTitle": "Select firmware image",
-
   "optionFullFormat": "Full format",
   "optionFullFormatOn": "Turn off to pick individual partitions",
   "optionFullFormatOff": "Only checked partitions are overwritten",
   "optionReboot": "Reboot when done",
   "optionRebootHint": "Restarts the board once writing finishes",
-
   "flashStart": "Start flashing",
   "flashAgain": "Flash again",
   "flashStop": "Stop",
-
   "progressPreparing": "Preparing…",
   "progressOverall": "Overall {percent}%",
-  "@progressOverall": {
-    "placeholders": { "percent": { "type": "String" } }
-  },
   "progressPartition": "This partition {percent}%",
-  "@progressPartition": {
-    "placeholders": { "percent": { "type": "String" } }
-  },
-
   "resultDone": "Done",
   "resultDoneRebooted": "The board has been rebooted",
   "resultDoneNoReboot": "Writing finished",
   "resultFailed": "Failed",
   "resultUnknownError": "Unknown error",
-
   "partitionsTitle": "Partitions",
   "partitionsSelectable": "Only checked ones are overwritten · {count} selected",
-  "@partitionsSelectable": {
-    "placeholders": { "count": { "type": "int" } }
-  },
   "partitionsFullFormat": "Full format — everything will be written",
   "partitionsEmpty": "Shown once an image is selected",
   "partitionKeep": "keep",
   "selectAll": "Select all",
-
   "logTitle": "Log",
   "logEmpty": "Nothing logged yet",
-
   "stepsTitle": "Steps",
   "step1": "Connect the board in FEL mode",
   "step1Hint": "Power on while holding the FEL button",
@@ -74,31 +46,16 @@
   "step2Hint": "The partition table is read from the .img",
   "step3": "Start flashing",
   "step3Hint": "About 2 minutes, from FEL→EFEX through reboot",
-
   "confirmTitle": "Flash this board?",
   "confirmFullFormat": "The storage will be fully formatted, then written.",
   "confirmPartial": "{count} partitions will be overwritten, without a full format.",
-  "@confirmPartial": {
-    "placeholders": { "count": { "type": "int" } }
-  },
   "confirmKeptTitle": "Kept (not overwritten)",
   "confirmWarningFull": "Everything on the board will be erased and cannot be recovered. Do not unplug the cable or cut power while it runs.",
   "confirmWarningPartial": "The partitions being overwritten cannot be recovered. Do not unplug the cable or cut power while it runs.",
   "cancel": "Cancel",
   "confirmFlash": "Flash",
-
   "toolMissingTitle": "Helper not found",
   "toolMissingBody": "Could not find the aw-tool executable.\nIf you are working in the checkout, run `cargo build --release` first.",
-
-  "languageTooltip": "Language",
-  "languageSystem": "Automatic",
-
-  "aboutTooltip": "About",
-  "aboutBuiltWith": "Built with Flutter (Dart) and Rust",
-  "aboutLicense": "License: MIT",
-  "aboutOpenRepo": "Open GitHub repository",
-  "aboutDescription": "Flashes Allwinner T507 / T527 boards over the FEL/EFEX USB protocol — an open-source alternative to PhoenixSuit.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written.",
-
   "troubleshootTooltip": "Troubleshoot",
   "troubleshootTitle": "Board not detected on Windows?",
   "troubleshootIntro": "The board can look completely normal in Device Manager and still be invisible to this app. That happens when the Microsoft default driver is bound instead of WinUSB — libusb can't open the device at all in that case. Running a command against it looks like this:",
@@ -108,30 +65,26 @@
   "troubleshootStep4": "Find the device by VID 1f3a / PID efe8, set the driver to WinUSB, and click Replace Driver.",
   "troubleshootStep5": "Check Device Manager again — it should now be listed under \"Universal Serial Bus devices\".",
   "troubleshootNote": "Once bound, it's recognised automatically after that, including across reboots.",
-
   "planLine": "Plan: {count} partitions, {megabytes} MB",
-  "@planLine": {
-    "placeholders": {
-      "count": { "type": "int" },
-      "megabytes": { "type": "int" }
-    }
-  },
   "errorPrefix": "Error: {message}",
-  "@errorPrefix": {
-    "placeholders": { "message": { "type": "String" } }
-  },
   "failedStep": "{step} failed: {message}",
-  "@failedStep": {
-    "placeholders": {
-      "step": { "type": "String" },
-      "message": { "type": "String" }
-    }
-  },
   "stepExtract": "Extracting sys_partition.fex",
   "stepListPartitions": "Reading the partition list",
   "errorNoResult": "Flashing exited without reporting a result.",
   "errorInterrupted": "Flashing was interrupted (exit code {code}).\nWriting did not finish, so the board will not boot. Flash it again.",
-  "@errorInterrupted": {
-    "placeholders": { "code": { "type": "int" } }
-  }
+  "aboutTooltip": "About",
+  "aboutVersion": "Version {version} (build {build})",
+  "aboutOpenSourceLicenses": "Open Source Licenses",
+  "aboutRepository": "GitHub",
+  "commonClose": "Close",
+  "aboutMenuItem": "About {appName}",
+  "themeMenuTooltip": "Theme",
+  "themeSystem": "Follow System",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "languageMenuTooltip": "Language",
+  "languageSystem": "System / 시스템 설정 따르기",
+  "languageSystemShort": "System",
+  "aboutTagline": "An open-source PhoenixSuit alternative for Allwinner boards",
+  "aboutDescription": "Flashes Allwinner T507 / T527 boards over the FEL/EFEX USB protocol.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written."
 }

@@ -1,54 +1,82 @@
 {
   "@@locale": "ko",
-
   "appSubtitle": "T507 / T527 · FEL/EFEX",
-
   "deviceFel": "FEL 모드",
   "deviceFelWithSoc": "FEL 모드 (soc 0x{soc})",
+  "@deviceFelWithSoc": {
+    "placeholders": {
+      "soc": {
+        "type": "String"
+      }
+    }
+  },
   "deviceEfex": "EFEX 모드",
   "deviceWaiting": "보드 연결 대기",
   "deviceShortNone": "연결 안 됨",
   "deviceReady": "플래싱 준비 완료",
   "deviceHint": "FEL 버튼(또는 핀)을 누른 채 전원을 연결하세요",
-
   "imageTitle": "펌웨어 이미지",
   "imageHint": ".img 파일을 선택하세요",
   "imageLoading": "파티션 정보를 읽는 중…",
   "imageSummary": "전체 {total}개 중 {selected}개 기록",
+  "@imageSummary": {
+    "placeholders": {
+      "selected": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "choose": "선택",
   "change": "변경",
   "pickerTitle": "펌웨어 이미지 선택",
-
   "optionFullFormat": "전체 포맷",
   "optionFullFormatOn": "끄면 파티션을 골라 덮어쓸 수 있습니다",
   "optionFullFormatOff": "체크한 파티션만 덮어씁니다",
   "optionReboot": "완료 후 재부팅",
   "optionRebootHint": "기록이 끝나면 보드를 다시 시작합니다",
-
   "flashStart": "플래싱 시작",
   "flashAgain": "다시 플래싱",
   "flashStop": "중단",
-
   "progressPreparing": "준비 중…",
   "progressOverall": "전체 {percent}%",
+  "@progressOverall": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
   "progressPartition": "이 파티션 {percent}%",
-
+  "@progressPartition": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
   "resultDone": "완료",
   "resultDoneRebooted": "보드를 재부팅했습니다",
   "resultDoneNoReboot": "기록이 끝났습니다",
   "resultFailed": "실패",
   "resultUnknownError": "알 수 없는 오류",
-
   "partitionsTitle": "파티션",
   "partitionsSelectable": "체크한 것만 덮어씁니다 · {count}개 선택",
+  "@partitionsSelectable": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "partitionsFullFormat": "전체 포맷 모드 — 모두 기록됩니다",
   "partitionsEmpty": "이미지를 선택하면 표시됩니다",
   "partitionKeep": "유지",
   "selectAll": "전체 선택",
-
   "logTitle": "로그",
   "logEmpty": "아직 기록이 없습니다",
-
   "stepsTitle": "순서",
   "step1": "보드를 FEL 모드로 연결",
   "step1Hint": "FEL 버튼을 누른 채 전원 인가",
@@ -56,28 +84,23 @@
   "step2Hint": ".img 안의 파티션 정보를 자동으로 읽습니다",
   "step3": "플래싱 시작",
   "step3Hint": "FEL → EFEX 진입부터 재부팅까지 약 2분",
-
   "confirmTitle": "보드를 플래싱할까요?",
   "confirmFullFormat": "저장소를 전체 포맷한 뒤 기록합니다.",
   "confirmPartial": "전체 포맷 없이 {count}개 파티션을 덮어씁니다.",
+  "@confirmPartial": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "confirmKeptTitle": "유지 (덮어쓰지 않음)",
   "confirmWarningFull": "보드의 기존 내용은 모두 사라지며 되돌릴 수 없습니다. 작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.",
   "confirmWarningPartial": "덮어쓰는 파티션의 기존 내용은 사라지며 되돌릴 수 없습니다. 작업 중에는 케이블을 뽑거나 전원을 끊지 마세요.",
   "cancel": "취소",
   "confirmFlash": "플래싱",
-
   "toolMissingTitle": "helper를 찾을 수 없습니다",
   "toolMissingBody": "aw-tool 실행 파일을 찾지 못했습니다.\n개발 중이라면 저장소 루트에서 `cargo build --release`를 먼저 실행하세요.",
-
-  "languageTooltip": "언어",
-  "languageSystem": "자동",
-
-  "aboutTooltip": "정보",
-  "aboutBuiltWith": "Flutter(Dart) · Rust로 제작",
-  "aboutLicense": "라이선스: MIT",
-  "aboutOpenRepo": "GitHub 저장소 열기",
-  "aboutDescription": "Allwinner T507 / T527 보드를 FEL/EFEX USB 프로토콜로 플래싱합니다. PhoenixSuit을 대체하는 오픈소스 도구입니다.\n\n이미지에서 직접 꺼낸 프라이머로 보드를 FEL에서 EFEX로 넘긴 뒤, 파티션 테이블과 각 파티션, BOOT1, BOOT0을 기록합니다.",
-
   "troubleshootTooltip": "문제 해결",
   "troubleshootTitle": "Windows에서 보드가 감지되지 않나요?",
   "troubleshootIntro": "장치 관리자에는 보드가 정상으로 보여도 이 앱에서는 안 보일 수 있습니다. WinUSB 대신 Microsoft 기본 드라이버가 붙어있으면 libusb가 장치를 아예 열지 못하기 때문입니다. 이 상태에서 명령을 실행하면 이렇게 나옵니다:",
@@ -87,12 +110,77 @@
   "troubleshootStep4": "VID 1f3a / PID efe8 장치를 찾아 드라이버를 WinUSB로 지정하고 Replace Driver를 누르세요.",
   "troubleshootStep5": "장치 관리자를 다시 열어 \"범용 직렬 버스 장치\" 아래로 옮겨갔는지 확인하세요.",
   "troubleshootNote": "한 번 바인딩하면 이후에는 재부팅해도 자동으로 인식됩니다.",
-
   "planLine": "계획: 파티션 {count}개, {megabytes} MB",
+  "@planLine": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "megabytes": {
+        "type": "int"
+      }
+    }
+  },
   "errorPrefix": "오류: {message}",
+  "@errorPrefix": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
   "failedStep": "{step} 실패: {message}",
+  "@failedStep": {
+    "placeholders": {
+      "step": {
+        "type": "String"
+      },
+      "message": {
+        "type": "String"
+      }
+    }
+  },
   "stepExtract": "sys_partition.fex 추출",
   "stepListPartitions": "파티션 목록 읽기",
   "errorNoResult": "플래싱이 결과를 보고하지 않고 종료했습니다.",
-  "errorInterrupted": "플래싱이 중단되었습니다 (종료 코드 {code}).\n기록이 끝나지 않은 상태라 보드는 부팅되지 않습니다. 다시 플래싱하세요."
+  "errorInterrupted": "플래싱이 중단되었습니다 (종료 코드 {code}).\n기록이 끝나지 않은 상태라 보드는 부팅되지 않습니다. 다시 플래싱하세요.",
+  "@errorInterrupted": {
+    "placeholders": {
+      "code": {
+        "type": "int"
+      }
+    }
+  },
+  "aboutTooltip": "정보",
+  "aboutVersion": "버전 {version} (빌드 {build})",
+  "@aboutVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "aboutOpenSourceLicenses": "오픈소스 라이선스",
+  "aboutRepository": "GitHub",
+  "commonClose": "닫기",
+  "aboutMenuItem": "{appName} 정보",
+  "@aboutMenuItem": {
+    "placeholders": {
+      "appName": {
+        "type": "String"
+      }
+    }
+  },
+  "themeMenuTooltip": "테마",
+  "themeSystem": "시스템 설정 따르기",
+  "themeLight": "라이트",
+  "themeDark": "다크",
+  "languageMenuTooltip": "언어",
+  "languageSystem": "시스템 설정 따르기 / System",
+  "languageSystemShort": "시스템",
+  "aboutTagline": "PhoenixSuit 대신 쓰는 오픈소스 Allwinner 플래셔",
+  "aboutDescription": "Allwinner T507 / T527 보드를 FEL/EFEX USB 프로토콜로 플래싱합니다.\n\n이미지에서 직접 꺼낸 프라이머로 보드를 FEL에서 EFEX로 넘긴 뒤, 파티션 테이블과 각 파티션, BOOT1, BOOT0을 기록합니다."
 }

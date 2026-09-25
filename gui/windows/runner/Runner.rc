@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "jyahn" "\0"
-            VALUE "FileDescription", "AllWinner Flash Tool" "\0"
+            VALUE "CompanyName", "Jongyun Ahn" "\0"
+            VALUE "FileDescription", "Allwinner Flasher" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "aw_flasher" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 jyahn. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Jongyun Ahn" "\0"
             VALUE "OriginalFilename", "aw_flasher.exe" "\0"
-            VALUE "ProductName", "AllWinner Flash Tool" "\0"
+            VALUE "ProductName", "Allwinner Flasher" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

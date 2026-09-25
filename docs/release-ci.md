@@ -5,34 +5,30 @@ GitHub 릴리즈로 묶어 올리는 워크플로다.
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) 파일
 하나로 구성돼 있으며,
 [application-release-templates](https://github.com/jejezz/application-release-templates)
-저장소 `desktop/` 템플릿(portside-flutter에서 서명·공증까지 실제 검증됨)을
+저장소 `desktop/` 템플릿(conventions-v1)을
 이 저장소의 실제 빌드 시스템에 맞게 적용한 것이다 — 순수 Flutter 앱을 가정한
 템플릿과 달리, 이 저장소는 Rust CLI 헬퍼(`aw-tool`)를 각 플랫폼 빌드에 동봉해야
 하고, GUI가 저장소 루트가 아니라 `gui/`에 있다.
 
 | 잡 | 내용 |
 |---|---|
-| `build-macos` | `cargo build --features vendored` → `flutter build macos` → 헬퍼 동봉 → Developer ID 서명 → DMG 패키징 → 공증 |
-| `build-windows` | `cargo build --features vendored` → `flutter build windows` → 헬퍼 동봉 → Inno Setup(`installer/windows/aw-flasher.iss`)으로 인스톨러 컴파일 |
-| `build-linux` | `cargo build`(vendored 아님 — README.md "Linux" 참고) → `flutter build linux` → 헬퍼 동봉 → tarball |
-| `release` | 위 세 잡이 **모두** 성공한 뒤에만 실행 — 아티팩트를 모아 `gh release create --generate-notes`로 한 번에 공개 |
+| `check` | 태그 = `gui/pubspec.yaml` 버전 = `Cargo.toml` 버전인지, `app_identity.dart`의 표시 이름이 `PRODUCT_NAME`과 같은지, README가 규약을 따르는지, 번역이 빠짐없는지 확인 |
+| `build-macos` | `cargo build --features vendored` → `flutter build macos` → 헬퍼 동봉 → Developer ID 서명 → DMG(`AllwinnerFlasher-<버전>-macos-arm64.dmg`) → 공증 |
+| `build-windows` | `cargo build --features vendored` → `flutter build windows` → 헬퍼 동봉 → Inno Setup(`installer/windows/app.iss`) → `AllwinnerFlasher-<버전>-windows-x64-setup.exe` |
+| `build-linux` | `cargo build`(vendored 아님 — [aw-tool.md](aw-tool.md) "Linux" 참고) → `flutter build linux` → 헬퍼·아이콘·`.desktop`·`install.sh` 동봉 → `AllwinnerFlasher-<버전>-linux-x64.tar.gz` |
+| `release` | 태그 push일 때만, 위 세 잡이 **모두** 성공한 뒤 실행 — 아티팩트와 `SHA256SUMS.txt`를 모아 `.github/release-notes-header.md` + 자동 생성 노트로 한 번에 공개 |
+
+`workflow_dispatch`(Actions 탭의 "Run workflow")로 돌리면 `check`와 세 빌드만
+돌고 릴리스는 만들지 않는다 — 워크플로를 고친 뒤 태그 전에 한 번 돌려 본다.
+Flutter 버전은 `FLUTTER_VERSION`(3.47.1)으로 고정돼 있다.
 
 **하나라도 실패하면 릴리즈 자체가 생성되지 않는다.** 플랫폼별로 따로 릴리즈를
-만들지 않기 때문에 일부 자산만 올라간 릴리즈가 남는 일이 없다 — 대신 Linux
-빌드가 실패하면 이미 잘 도는 macOS/Windows 산출물도 릴리즈되지 않는다는 뜻이다.
-이 저장소의 Linux 빌드는 [README.md](../README.md)에 아직 "미검증"이라고
-적혀 있으므로, 태그를 처음 push했을 때 `build-linux`가 실패해 릴리즈가 막힐 수
-있다 — 그 경우 Actions 로그로 원인을 고치거나, 급하면 `release` 잡의
-`needs:`에서 `build-linux`를 빼고 릴리즈만 macOS/Windows로 먼저 낸 뒤 Linux는
-따로 처리하는 것도 방법이다.
+만들지 않기 때문에 일부 자산만 올라간 릴리즈가 남는 일이 없다.
 
-**릴리즈는 초안 없이 바로 공개된다** (`gh release create`에 `--draft` 없음,
-템플릿 그대로). 이전 버전의 이 워크플로(2파일 구성, `scripts/release.sh`를
-CI에서 그대로 호출)와 달리 이번 버전은 로컬 스크립트를 호출하지 않고 YAML
-안에 직접 빌드·패키징 로직을 담고 있다 — `scripts/release.sh` /
-`scripts/release-windows.ps1`은 여전히 로컬에서 손으로 릴리즈할 때 쓸 수
-있지만(플랫폼별로 개별 릴리즈를 만듦), 태그를 push했을 때 도는 CI 경로와는
-별개다.
+**릴리즈는 초안 없이 바로 공개된다.** 릴리즈 산출물은 이 워크플로만 만든다 — 로컬의
+`scripts/build-app.sh` / `scripts/build-app-windows.ps1`은 개발 빌드용이다 (v1.1.3까지
+있던 `scripts/release.sh` / `release-windows.ps1`은 CI와 다른 이름으로 릴리즈를 만들 수
+있어 지웠다).
 
 ## 필요한 시크릿
 
@@ -49,7 +45,7 @@ CI에서 그대로 호출)와 달리 이번 버전은 로컬 스크립트를 호
 
 **위 macOS 시크릿 6개는 이미 저장소에 등록돼 있다** (`gh secret list`로 확인함,
 2026-09-21). 태그를 push하면 `build-macos`가 실제 Developer ID로 서명하고
-공증까지 마친 DMG를 만든다 — 로컬의 `scripts/build-app.sh`/`scripts/release.sh`는
+공증까지 마친 DMG를 만든다 — 로컬의 `scripts/build-app.sh`는
 여전히 ad-hoc(`codesign --sign -`)로만 서명하지만, CI 산출물은 그것과 다르다.
 
 인증서가 만료되거나 바뀌는 등 문제가 생겨 서명을 잠시 끄고 싶다면,

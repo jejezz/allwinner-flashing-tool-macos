@@ -24,9 +24,9 @@ Writes, for each platform folder that exists:
                                   (radius 185) with a drop shadow in a 1024
                                   canvas, glyph 440px — a sticker's white
                                   outline needs gradient around it to read
-  Windows  app_icon.ico           full-bleed plate (12% radius), glyph 80% —
-                                  a macOS-sized glyph reads as too small in
-                                  the taskbar
+  Windows  app_icon.ico           the glyph alone, no plate, one frame per size
+                                  — on a taskbar full of plates in the same
+                                  colour only the silhouette tells apps apart
   Linux    app_icon.png 512px     same as Windows
   iOS      AppIcon.appiconset     square plate, glyph 76%, NO alpha channel
                                   (App Store Connect rejects one)
@@ -64,6 +64,15 @@ MAC_SHADOW_ALPHA = 90
 # Windows / Linux: nearly edge to edge.
 DESKTOP_RADIUS_FRACTION = 0.12
 DESKTOP_GLYPH_FRACTION = 0.80
+# Windows icons are the glyph alone: the taskbar and Explorer lists show many
+# small icons side by side, and a shared plate colour makes them look alike.
+# Every size is rendered on its own — a plain downscale of the 1024px master
+# turns the glyph's thin outline to mush at 16-48px — and the small ones get
+# a light unsharp mask. 20/24/40 are the sizes Windows asks for at 125-150%
+# scaling; without them it stretches a neighbour and blurs.
+WINDOWS_ICON_SIZES = [256, 128, 64, 48, 40, 32, 24, 20, 16]
+WINDOWS_GLYPH_FRACTION = 0.96
+SHARPEN_MAX = 48
 
 # iOS / Android legacy: the OS applies its own mask to a square plate.
 MOBILE_GLYPH_FRACTION = 0.76
@@ -155,13 +164,21 @@ def write_macos(icon: Image.Image) -> None:
     print(f'macOS    {out.relative_to(ROOT)}/app_icon_{{16..1024}}.png')
 
 
-def write_windows(icon: Image.Image) -> None:
+def windows_icon(glyph: Image.Image, size: int) -> Image.Image:
+    art = fit(glyph, round(size * WINDOWS_GLYPH_FRACTION))
+    if size <= SHARPEN_MAX:
+        art = art.filter(ImageFilter.UnsharpMask(radius=0.6, percent=120, threshold=0))
+    return centre(Image.new('RGBA', (size, size), (0, 0, 0, 0)), art)
+
+
+def write_windows(glyph: Image.Image) -> None:
     out = ROOT / 'windows/runner/resources/app_icon.ico'
     if not out.parent.exists():
         return
-    sizes = [256, 128, 64, 48, 32, 16]
-    icon.save(out, format='ICO', sizes=[(s, s) for s in sizes])
-    print(f'Windows  {out.relative_to(ROOT)} ({"/".join(map(str, sizes))})')
+    frames = [windows_icon(glyph, s) for s in WINDOWS_ICON_SIZES]
+    frames[0].save(out, format='ICO', sizes=[(s, s) for s in WINDOWS_ICON_SIZES],
+                   append_images=frames[1:])
+    print(f'Windows  {out.relative_to(ROOT)} ({"/".join(map(str, WINDOWS_ICON_SIZES))}, no plate)')
 
 
 def write_linux(icon: Image.Image) -> None:
@@ -256,8 +273,8 @@ def main() -> None:
     print(f'master   {(ICON_DIR / "app_icon_1024.png").relative_to(ROOT)}, app_icon.png (256)')
 
     write_macos(mac)
-    desktop = desktop_icon(glyph)
-    write_windows(desktop)
+    desktop = desktop_icon(glyph)  # Linux
+    write_windows(glyph)
     write_linux(desktop)
     mobile = mobile_icon(glyph)
     write_ios(mobile)

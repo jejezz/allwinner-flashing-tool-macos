@@ -21,4 +21,15 @@ abstract final class AppIdentity {
   static const iconAsset = 'assets/icon/app_icon.png';
 
   static const copyright = 'Copyright © $firstReleaseYear $copyrightHolder';
+
+  /// 업데이트 서버 (introduce-public-repos 의 /api/update). 단지(장비)마다 호스트가 다르다 —
+  /// 빌드 때 `--dart-define=UPDATE_SERVER=https://…/repos` 로 바꾼다. **빈 값이면 업데이트 확인을 끈다.**
+  /// https 만 받는다 (conventions/updating.md).
+  static const updateServerUrl = String.fromEnvironment(
+    'UPDATE_SERVER',
+    defaultValue: 'https://c-a3f19c04.rtc.zoomon.art/repos',
+  );
+
+  /// 서버가 앱을 아는 이름 = 저장소 이름 (repositoryUrl 의 마지막 경로).
+  static String get updateAppId => Uri.parse(repositoryUrl).pathSegments.where((s) => s.isNotEmpty).last;
 }

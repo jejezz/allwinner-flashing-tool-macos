@@ -86,5 +86,105 @@
   "languageSystem": "System / 시스템 설정 따르기",
   "languageSystemShort": "System",
   "aboutTagline": "An open-source PhoenixSuit alternative for Allwinner boards",
-  "aboutDescription": "Flashes Allwinner T507 / T527 boards over the FEL/EFEX USB protocol.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written."
+  "aboutDescription": "Flashes Allwinner T507 / T527 boards over the FEL/EFEX USB protocol.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written.",
+  "updateCheckMenuItem": "Check for Updates",
+  "updateChecking": "Checking for updates…",
+  "updateAvailableTitle": "A new version is available",
+  "updateAvailableBody": "{appName} {latest} is available. You have {current}.",
+  "@updateAvailableBody": {
+    "placeholders": {
+      "appName": {
+        "type": "String"
+      },
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "updateReleaseNotes": "What's new",
+  "updateNow": "Update now",
+  "updateLater": "Later",
+  "updateSkipVersion": "Skip this version",
+  "updateDownloading": "Downloading…",
+  "updateVerifying": "Verifying the file…",
+  "updateDownloadProgress": "{received} / {total}",
+  "@updateDownloadProgress": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "updateCancel": "Cancel",
+  "updateFailedTitle": "Couldn't update",
+  "updateCheckFailedTitle": "Couldn't check for updates",
+  "updateErrorNetwork": "Couldn't reach the update server. Check your internet connection and try again.",
+  "updateErrorChecksum": "The downloaded file didn't pass verification, so it was not installed. Please try again later.",
+  "updateErrorInstall": "Couldn't start the installation.",
+  "updateErrorGeneric": "The update server sent an unexpected response. Please try again later.",
+  "updateUpToDateTitle": "You're up to date",
+  "updateUpToDateBody": "You're using version {version}.",
+  "@updateUpToDateBody": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateUnavailableTitle": "Install it manually",
+  "updateUnavailableBody": "Version {latest} is available, but the app can't install it automatically. Please download it from the release page.",
+  "@updateUnavailableBody": {
+    "placeholders": {
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "updateOpenReleasePage": "Open release page",
+  "updateMacosOpenedTitle": "The installer window is open",
+  "updateMacosOpenedBody": "In the window that opened, drag {appName} to the Applications folder. If it's running, quit it first and replace the old copy.",
+  "@updateMacosOpenedBody": {
+    "placeholders": {
+      "appName": {
+        "type": "String"
+      }
+    }
+  },
+  "updateWindowsInstallTitle": "The installer is open",
+  "updateWindowsInstallBody": "{appName} must quit before it can be updated. Follow the installer's instructions.",
+  "@updateWindowsInstallBody": {
+    "placeholders": {
+      "appName": {
+        "type": "String"
+      }
+    }
+  },
+  "updateQuitApp": "Quit {appName}",
+  "@updateQuitApp": {
+    "placeholders": {
+      "appName": {
+        "type": "String"
+      }
+    }
+  },
+  "updateLinuxInstallTitle": "Ready to install",
+  "updateLinuxInstallBody": "{appName} will quit and install the update, then start again automatically.",
+  "@updateLinuxInstallBody": {
+    "placeholders": {
+      "appName": {
+        "type": "String"
+      }
+    }
+  },
+  "updateQuitAndInstall": "Quit and install",
+  "updateBusyTitle": "Can't update right now",
+  "updateBusyBody": "A task is in progress. Please try again when it has finished.",
+  "quitBlockedTitle": "Can't quit while flashing",
+  "quitBlockedBody": "Quitting while the board is being written would leave it unable to boot. Please quit after it finishes."
 }

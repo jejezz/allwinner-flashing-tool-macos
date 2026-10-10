@@ -42,6 +42,11 @@ dependencies:
   package_info_plus: ^10.2.1
   shared_preferences: ^2.5.5
   window_manager: ^0.5.2
+  app_updater:
+    git:
+      url: https://github.com/jejezz/application-release-templates
+      ref: updater-v0.1.0
+      path: updater
 
 dev_dependencies:
   flutter_test:

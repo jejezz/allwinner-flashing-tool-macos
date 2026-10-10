@@ -16,10 +16,13 @@ import '../app_identity.dart';
 import '../l10n/app_localizations.dart';
 
 class AppMenuBar extends StatelessWidget {
-  const AppMenuBar({super.key, required this.onAbout, required this.child});
+  const AppMenuBar({super.key, required this.onAbout, this.onCheckForUpdates, required this.child});
 
   /// 보통 `() => showAppAboutDialog(navigatorKey.currentContext!, …)`.
   final VoidCallback onAbout;
+
+  /// 있으면 About 아래에 "업데이트 확인…" 항목을 둔다 (conventions/updating.md).
+  final VoidCallback? onCheckForUpdates;
   final Widget child;
 
   @override
@@ -33,6 +36,8 @@ class AppMenuBar extends StatelessWidget {
           menus: [
             PlatformMenuItemGroup(members: [
               PlatformMenuItem(label: l10n.aboutMenuItem(AppIdentity.displayName), onSelected: onAbout),
+              if (onCheckForUpdates != null)
+                PlatformMenuItem(label: l10n.updateCheckMenuItem, onSelected: onCheckForUpdates),
             ]),
             const PlatformMenuItemGroup(members: [
               PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.servicesSubmenu),

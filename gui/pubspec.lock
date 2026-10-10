@@ -9,6 +9,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
+  app_updater:
+    dependency: "direct main"
+    description:
+      path: updater
+      ref: "updater-v0.1.0"
+      resolved-ref: "33e26a11f65760f775ff3ac6bc3b19aed4ce75b0"
+      url: "https://github.com/jejezz/application-release-templates"
+    source: git
+    version: "0.1.0"
   args:
     dependency: transitive
     description:
@@ -65,6 +74,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.5+5"
+  crypto:
+    dependency: transitive
+    description:
+      name: crypto
+      sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.7"
   cupertino_icons:
     dependency: "direct main"
     description:

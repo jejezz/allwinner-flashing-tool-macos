@@ -16,6 +16,8 @@ import 'settings/legacy_language_file.dart';
 import 'settings/settings_menus.dart';
 import 'theme.dart';
 import 'troubleshoot.dart';
+import 'update/update_scope.dart';
+import 'update/update_service.dart';
 import 'widgets.dart';
 
 Future<void> main() async {
@@ -42,13 +44,22 @@ Future<void> main() async {
 
   final settings = await AppSettings.load();
   await migrateLegacyLanguageFile(settings);
-  runApp(FlasherApp(settings: settings));
+  // Null on non-desktop or when UPDATE_SERVER is empty — no update checks.
+  final updates = await UpdateService.create();
+  // UpdateScope sits above MaterialApp so the About dialog can show the button.
+  runApp(UpdateScope(
+    service: updates,
+    child: FlasherApp(settings: settings, updates: updates),
+  ));
 }
 
 class FlasherApp extends StatefulWidget {
-  const FlasherApp({super.key, required this.settings});
+  const FlasherApp({super.key, required this.settings, this.updates});
 
   final AppSettings settings;
+
+  /// Checks for a new version at startup. Null disables update checks.
+  final UpdateService? updates;
 
   @override
   State<FlasherApp> createState() => _FlasherAppState();
@@ -63,6 +74,7 @@ class _FlasherAppState extends State<FlasherApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     widget.settings.addListener(_syncWindowBrightness);
     _syncWindowBrightness();
+    widget.updates?.startAutomaticCheck(_navigatorKey);
   }
 
   @override
@@ -93,6 +105,11 @@ class _FlasherAppState extends State<FlasherApp> with WidgetsBindingObserver {
     if (context != null) showFlasherAbout(context);
   }
 
+  void _checkForUpdates() {
+    final context = _navigatorKey.currentContext;
+    if (context != null) widget.updates?.checkManually(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppSettingsScope(
@@ -112,8 +129,12 @@ class _FlasherAppState extends State<FlasherApp> with WidgetsBindingObserver {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           localeResolutionCallback: AppSettings.resolveLocale,
-          builder: (context, child) =>
-              AppMenuBar(onAbout: _showAbout, child: child!),
+          builder: (context, child) => AppMenuBar(
+            onAbout: _showAbout,
+            onCheckForUpdates:
+                widget.updates == null ? null : _checkForUpdates,
+            child: child!,
+          ),
           home: HomePage(onAbout: _showAbout),
         ),
       ),

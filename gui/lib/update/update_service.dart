@@ -34,13 +34,15 @@ class UpdateService {
     Future<void> Function()? quitApp,
     Future<void> Function(Uri url)? openUrl,
     this.startupDelay = const Duration(seconds: 5),
+    this.isBusy,
+    this.idlePollInterval = const Duration(seconds: 5),
   })  : os = os ?? _currentOs(),
         _quitApp = quitApp ?? _exitApp,
         _openUrl = openUrl ?? _launch;
 
   /// 데스크톱이 아니거나 서버 주소가 비어 있으면(`--dart-define=UPDATE_SERVER=`) null —
   /// 그 앱은 업데이트 확인을 하지 않는다 (스토어 배포 모바일 앱 등).
-  static Future<UpdateService?> create() async {
+  static Future<UpdateService?> create({bool Function()? isBusy}) async {
     if (AppIdentity.updateServerUrl.isEmpty) return null;
     if (!(Platform.isMacOS || Platform.isWindows || Platform.isLinux)) return null;
     final info = await PackageInfo.fromPlatform();
@@ -53,6 +55,7 @@ class UpdateService {
         installer: platformInstaller(PlatformInfo.current()),
       ),
       policy: UpdatePolicy(PrefsUpdateStateStore(prefs)),
+      isBusy: isBusy,
     );
   }
 
@@ -64,6 +67,22 @@ class UpdateService {
 
   /// 앱을 시작하고 첫 화면이 뜬 뒤 이만큼 기다렸다가 확인한다.
   final Duration startupDelay;
+
+  /// 앱이 지금 **끊기면 안 되는 일**(기기에 쓰는 중 등)을 하고 있으면 true 를 돌려준다.
+  /// true 인 동안은 업데이트를 알리지 않고(자동 확인은 끝날 때까지 미룬다), "지금 업데이트" 도 막는다 —
+  /// 설치는 앱을 종료시키기 때문이다. null 이면 항상 한가하다고 본다.
+  final bool Function()? isBusy;
+
+  /// 바쁜 동안 다시 확인하는 간격.
+  final Duration idlePollInterval;
+
+  bool get _busy => isBusy?.call() ?? false;
+
+  Future<void> _waitUntilIdle() async {
+    while (_busy) {
+      await Future<void>.delayed(idlePollInterval);
+    }
+  }
 
   final Future<void> Function() _quitApp;
   final Future<void> Function(Uri url) _openUrl;
@@ -85,8 +104,10 @@ class UpdateService {
     unawaited(() async {
       try {
         await Future<void>.delayed(startupDelay);
+        await _waitUntilIdle(); // 일하는 중이면 끝날 때까지 미룬다 (확인 자체를 미뤄서 '오늘은 확인함' 으로 기록되지 않게)
         await updater.cleanUpOldDownloads();
         final result = await updater.checkAutomatically(policy);
+        await _waitUntilIdle(); // 확인하는 사이에 일이 시작됐을 수 있다
         final context = navigatorKey.currentContext;
         if (result == null || context == null || !context.mounted) return;
         await _present(context, result, manual: false);
@@ -145,7 +166,12 @@ class UpdateService {
         );
         switch (choice) {
           case UpdateChoice.now:
-            if (context.mounted) await _download(context, info);
+            if (!context.mounted) return;
+            if (_busy) {
+              await _showBusy(context);
+            } else {
+              await _download(context, info);
+            }
           case UpdateChoice.skip:
             await policy.skip(info.latestVersion);
           case UpdateChoice.later || null:
@@ -189,6 +215,14 @@ class UpdateService {
     }
   }
 
+  Future<void> _showBusy(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return showDialog<void>(
+      context: context,
+      builder: (_) => UpdateMessageDialog(title: l10n.updateBusyTitle, message: l10n.updateBusyBody),
+    );
+  }
+
   Future<void> _download(BuildContext context, UpdateInfo info) async {
     final downloaded = await showDialog<DownloadedUpdate>(
       context: context,
@@ -197,6 +231,13 @@ class UpdateService {
     );
     if (downloaded == null || !context.mounted) return;
     final l10n = AppLocalizations.of(context);
+
+    // 내려받는 사이에 일이 시작됐으면 설치하지 않는다 (설치는 앱을 종료시킨다).
+    if (_busy) {
+      await updater.discard(downloaded);
+      if (context.mounted) await _showBusy(context);
+      return;
+    }
 
     final InstallOutcome outcome;
     try {

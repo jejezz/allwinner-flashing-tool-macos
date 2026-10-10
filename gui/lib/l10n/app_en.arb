@@ -182,5 +182,9 @@
       }
     }
   },
-  "updateQuitAndInstall": "Quit and install"
+  "updateQuitAndInstall": "Quit and install",
+  "updateBusyTitle": "Can't update right now",
+  "updateBusyBody": "A task is in progress. Please try again when it has finished.",
+  "quitBlockedTitle": "Can't quit while flashing",
+  "quitBlockedBody": "Quitting while the board is being written would leave it unable to boot. Please quit after it finishes."
 }

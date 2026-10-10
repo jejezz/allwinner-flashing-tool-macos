@@ -278,5 +278,9 @@
       }
     }
   },
-  "updateQuitAndInstall": "종료하고 설치"
+  "updateQuitAndInstall": "종료하고 설치",
+  "updateBusyTitle": "지금은 업데이트할 수 없습니다",
+  "updateBusyBody": "작업이 진행 중입니다. 끝난 뒤에 다시 시도해 주세요.",
+  "quitBlockedTitle": "플래시 중에는 종료할 수 없습니다",
+  "quitBlockedBody": "보드에 쓰는 중에 종료하면 보드가 부팅되지 않습니다. 끝난 뒤에 종료해 주세요."
 }

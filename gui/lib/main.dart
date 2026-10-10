@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -44,19 +46,32 @@ Future<void> main() async {
 
   final settings = await AppSettings.load();
   await migrateLegacyLanguageFile(settings);
+  // The model lives above the widget tree so the app can refuse to quit, and
+  // the updater can refuse to install, while a flash is running.
+  final model = FlasherModel();
   // Null on non-desktop or when UPDATE_SERVER is empty — no update checks.
-  final updates = await UpdateService.create();
+  // While flashing, the updater neither prompts nor installs (installing
+  // quits the app, and quitting mid-write leaves the board unbootable).
+  final updates = await UpdateService.create(isBusy: () => model.busy);
   // UpdateScope sits above MaterialApp so the About dialog can show the button.
   runApp(UpdateScope(
     service: updates,
-    child: FlasherApp(settings: settings, updates: updates),
+    child: FlasherApp(settings: settings, model: model, updates: updates),
   ));
 }
 
 class FlasherApp extends StatefulWidget {
-  const FlasherApp({super.key, required this.settings, this.updates});
+  const FlasherApp({
+    super.key,
+    required this.settings,
+    required this.model,
+    this.updates,
+  });
 
   final AppSettings settings;
+
+  /// Owned here (not by the home page) so quitting can be refused mid-flash.
+  final FlasherModel model;
 
   /// Checks for a new version at startup. Null disables update checks.
   final UpdateService? updates;
@@ -81,7 +96,34 @@ class _FlasherAppState extends State<FlasherApp> with WidgetsBindingObserver {
   void dispose() {
     widget.settings.removeListener(_syncWindowBrightness);
     WidgetsBinding.instance.removeObserver(this);
+    widget.model.dispose();
     super.dispose();
+  }
+
+  /// Quitting while the board is being written leaves it unable to boot
+  /// (FlasherModel.cancel says the same). Refuse — Cmd+Q, the window's close
+  /// button and the updater's quit all come through here — and say why.
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    if (!widget.model.busy) return AppExitResponse.exit;
+    final context = _navigatorKey.currentContext;
+    if (context != null && context.mounted) {
+      final l10n = AppLocalizations.of(context);
+      unawaited(showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(l10n.quitBlockedTitle),
+          content: Text(l10n.quitBlockedBody),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.commonClose),
+            ),
+          ],
+        ),
+      ));
+    }
+    return AppExitResponse.cancel;
   }
 
   // Picking dark in the app while the OS is light would otherwise leave a
@@ -135,7 +177,7 @@ class _FlasherAppState extends State<FlasherApp> with WidgetsBindingObserver {
                 widget.updates == null ? null : _checkForUpdates,
             child: child!,
           ),
-          home: HomePage(onAbout: _showAbout),
+          home: HomePage(onAbout: _showAbout, model: widget.model),
         ),
       ),
     );
@@ -143,16 +185,17 @@ class _FlasherAppState extends State<FlasherApp> with WidgetsBindingObserver {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.onAbout});
+  const HomePage({super.key, required this.onAbout, required this.model});
 
   final VoidCallback onAbout;
+  final FlasherModel model;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-  final model = FlasherModel();
+  FlasherModel get model => widget.model;
 
   @override
   void initState() {
@@ -164,7 +207,6 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     model.removeListener(_onChange);
-    model.dispose();
     super.dispose();
   }
 

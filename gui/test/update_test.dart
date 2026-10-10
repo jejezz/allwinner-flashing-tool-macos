@@ -89,11 +89,13 @@ class _FakeUpdater implements AppUpdater {
 }
 
 class _Harness {
-  _Harness({String os = 'macos'}) {
+  _Harness({String os = 'macos', bool Function()? isBusy}) {
     service = UpdateService(
       updater: updater,
       policy: policy,
       os: os,
+      isBusy: isBusy,
+      idlePollInterval: const Duration(milliseconds: 20),
       startupDelay: Duration.zero,
       quitApp: () async => quits++,
       openUrl: (url) async => opened.add(url),
@@ -287,6 +289,60 @@ void main() {
       await agree(tester);
       expect(find.text('설치를 시작하지 못했습니다.'), findsOneWidget);
       expect(h.updater.discards, 1);
+    });
+  });
+
+  group('busy (the app is doing something that must not be interrupted)', () {
+    testWidgets('the automatic prompt waits until the app is idle', (tester) async {
+      var busy = true;
+      final h = _Harness(isBusy: () => busy)..updater.autoResult = UpdateAvailable(_info());
+      await tester.pumpWidget(h.app());
+      h.service.startAutomaticCheck(h.navigatorKey);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('새 버전이 있습니다'), findsNothing);
+
+      busy = false;
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('새 버전이 있습니다'), findsOneWidget);
+    });
+
+    testWidgets('"Update now" is refused while busy and nothing is downloaded', (tester) async {
+      var busy = false;
+      final h = _Harness(isBusy: () => busy)..updater.checkResult = UpdateAvailable(_info());
+      await _check(tester, h);
+      busy = true; // 알림이 떠 있는 사이에 일이 시작됐다
+      await tester.tap(find.text('지금 업데이트'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('지금은 업데이트할 수 없습니다'), findsOneWidget);
+      expect(h.updater.downloads, 0);
+      expect(h.updater.installs, 0);
+    });
+
+    testWidgets('work that starts during the download cancels the install and removes the file', (tester) async {
+      var busy = false;
+      final h = _Harness(isBusy: () => busy)
+        ..updater.checkResult = UpdateAvailable(_info())
+        ..updater.gate = Completer<void>();
+      await _check(tester, h);
+      await tester.tap(find.text('지금 업데이트'));
+      await tester.pump();
+      await tester.pump();
+      busy = true;
+      h.updater.gate!.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('지금은 업데이트할 수 없습니다'), findsOneWidget);
+      expect(h.updater.installs, 0);
+      expect(h.updater.discards, 1);
+      expect(h.quits, 0);
+    });
+
+    testWidgets('a manual check still reports while busy (only installing is blocked)', (tester) async {
+      final h = _Harness(isBusy: () => true);
+      await _check(tester, h);
+      expect(find.text('최신 버전입니다'), findsOneWidget);
     });
   });
 

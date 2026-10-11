@@ -21,6 +21,7 @@ import 'troubleshoot.dart';
 import 'update/update_scope.dart';
 import 'update/update_service.dart';
 import 'widgets.dart';
+import 'window/focus_tint.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -326,7 +327,7 @@ class _Header extends StatelessWidget {
       DeviceState.none => (AppColors.idle, null),
     };
 
-    return Row(
+    final row = Row(
       children: [
         const AppMark(size: 44),
         const SizedBox(width: 14),
@@ -363,10 +364,28 @@ class _Header extends StatelessWidget {
           ),
         IconButton(
           tooltip: l10n.aboutTooltip,
-          icon: const Icon(Icons.info_outline, size: 20),
+          icon: const Icon(Icons.info_outline),
           onPressed: onAbout,
         ),
       ],
+    );
+
+    // 창이 포커스를 받으면 헤더 배경이 서서히 물든다. 오른쪽 아이콘 버튼은 모두 20으로 맞춘다
+    // (ui-ux.md §4).
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Stack(
+        children: [
+          const Positioned.fill(child: FocusTint()),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: IconButtonTheme(
+              data: IconButtonThemeData(style: IconButton.styleFrom(iconSize: 20)),
+              child: row,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

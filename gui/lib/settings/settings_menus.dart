@@ -61,7 +61,7 @@ class LanguageMenuButton extends StatelessWidget {
     final current = settings.locale?.languageCode ?? '';
     return PopupMenuButton<String>(
       tooltip: l10n.languageMenuTooltip,
-      icon: const Icon(Icons.translate_rounded),
+      icon: const Icon(Icons.language_rounded),
       initialValue: current,
       onSelected: (code) => settings.setLocale(code.isEmpty ? null : Locale(code)),
       itemBuilder: (_) => [

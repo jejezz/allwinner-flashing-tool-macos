@@ -358,7 +358,7 @@ class _Header extends StatelessWidget {
         if (Platform.isWindows)
           IconButton(
             tooltip: l10n.troubleshootTooltip,
-            icon: const Icon(Icons.troubleshoot, size: 20),
+            icon: const Icon(Icons.troubleshoot),
             onPressed: () => showTroubleshootSheet(context),
           ),
         IconButton(

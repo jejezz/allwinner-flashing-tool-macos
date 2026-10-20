@@ -460,8 +460,12 @@ jobs:
         working-directory: dist
         run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
 
-      # Title "<Display Name> vX.Y.Z"; notes = the install-guide header
-      # followed by GitHub's generated PR list (conventions/workflow.md §4).
+      # Title "<Display Name> vX.Y.Z"; notes = GitHub's generated PR list
+      # ("What's Changed") first, then the install-guide footer
+      # (conventions/workflow.md §4). The in-app update dialog shows only the
+      # top of the body, so the changes must come before the install guide.
+      # `--generate-notes` always appends after --notes-file, so the notes are
+      # generated through the API and assembled here instead.
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -469,10 +473,13 @@ jobs:
           DISPLAY_NAME: ${{ needs.check.outputs.display_name }}
           PRERELEASE: ${{ needs.check.outputs.prerelease }}
         run: |
-          ARGS=(--title "$DISPLAY_NAME $GITHUB_REF_NAME" --generate-notes)
+          gh api -X POST "repos/$GH_REPO/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body > notes.md
           if [ -f .github/release-notes-header.md ]; then
-            ARGS+=(--notes-file .github/release-notes-header.md)
+            printf '\n\n---\n\n' >> notes.md
+            cat .github/release-notes-header.md >> notes.md
           fi
+          ARGS=(--title "$DISPLAY_NAME $GITHUB_REF_NAME" --notes-file notes.md)
           if [ "$PRERELEASE" = "true" ]; then
             ARGS+=(--prerelease)
           fi

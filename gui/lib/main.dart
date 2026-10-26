@@ -22,6 +22,7 @@ import 'update/update_scope.dart';
 import 'update/update_service.dart';
 import 'widgets.dart';
 import 'window/focus_tint.dart';
+import 'window/window_placement.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,15 +35,20 @@ Future<void> main() async {
   await windowManager.ensureInitialized();
   // The layout stacks a device card, the partition table, options, progress
   // and a log pane; anything much shorter clips the log to a couple of lines.
+  const windowSize = Size(960, 760);
+  // 시작 위치는 center: true 대신 placeWindowAtStartup — 모니터마다 배율이 다른
+  // Windows 듀얼 모니터에서 center: true가 창을 화면 밖에 놓는다.
   const options = WindowOptions(
-    size: Size(960, 760),
+    size: windowSize,
     minimumSize: Size(720, 600),
-    center: true,
+    center: false,
     title: AppIdentity.displayName,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
+    await placeWindowAtStartup(windowSize);
     await windowManager.show();
     await windowManager.focus();
+    LastDisplaySaver().start();
   });
 
   final settings = await AppSettings.load();

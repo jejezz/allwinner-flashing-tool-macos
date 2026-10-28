@@ -411,19 +411,30 @@ class _ControlColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _DeviceCard(model: model),
-        const SizedBox(height: 14),
-        _ImageCard(model: model, onPick: onPick),
-        const SizedBox(height: 14),
-        _OptionsCard(model: model),
-        const SizedBox(height: 14),
-        Expanded(child: _PartitionCard(model: model)),
-        const SizedBox(height: 18),
-        _ActionButton(model: model, onFlash: onFlash),
-      ],
+    // A plain Column with one Expanded card (the old approach) overflows
+    // instead of scrolling once the window gets short enough that the fixed
+    // cards above/below don't leave the partition card room for even its own
+    // header — so the column scrolls as a whole, same as the detail column's
+    // partition list does internally, with the same right-side gutter for
+    // the scrollbar so it doesn't sit flush against the cards.
+    return Scrollbar(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(right: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _DeviceCard(model: model),
+            const SizedBox(height: 14),
+            _ImageCard(model: model, onPick: onPick),
+            const SizedBox(height: 14),
+            _OptionsCard(model: model),
+            const SizedBox(height: 14),
+            SizedBox(height: 280, child: _PartitionCard(model: model)),
+            const SizedBox(height: 18),
+            _ActionButton(model: model, onFlash: onFlash),
+          ],
+        ),
+      ),
     );
   }
 }

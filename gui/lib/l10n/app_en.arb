@@ -55,6 +55,8 @@
   "confirmWarningPartial": "The partitions being overwritten cannot be recovered. Do not unplug the cable or cut power while it runs.",
   "cancel": "Cancel",
   "confirmFlash": "Flash",
+  "confirmStopTitle": "Stop flashing?",
+  "confirmStopWarning": "Stopping now leaves the board mid-write — it won't boot normally until you flash it again.",
   "toolMissingTitle": "Helper not found",
   "toolMissingBody": "Could not find the aw-tool executable.\nIf you are working in the checkout, run `cargo build --release` first.",
   "troubleshootTooltip": "Troubleshoot",

@@ -255,6 +255,14 @@ class _HomePageState extends State<HomePage> {
     if (ok == true) await model.flash();
   }
 
+  Future<void> _confirmAndStop() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => const _StopConfirmDialog(),
+    );
+    if (ok == true) model.cancel();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -295,7 +303,11 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
       floatingActionButton: model.toolError == null
-          ? _ActionButton(model: model, onFlash: _confirmAndFlash)
+          ? _ActionButton(
+              model: model,
+              onFlash: _confirmAndFlash,
+              onStop: _confirmAndStop,
+            )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
@@ -765,10 +777,15 @@ class _OptionRow extends StatelessWidget {
 /// scrolled, rather than something that can get pushed out of view by a
 /// long partition list.
 class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.model, required this.onFlash});
+  const _ActionButton({
+    required this.model,
+    required this.onFlash,
+    required this.onStop,
+  });
 
   final FlasherModel model;
   final VoidCallback onFlash;
+  final VoidCallback onStop;
 
   @override
   Widget build(BuildContext context) {
@@ -776,7 +793,7 @@ class _ActionButton extends StatelessWidget {
     if (model.phase == Phase.flashing) {
       return FloatingActionButton.extended(
         backgroundColor: AppColors.danger,
-        onPressed: model.cancel,
+        onPressed: onStop,
         icon: const Icon(Icons.stop_circle_outlined),
         label: Text(l10n.flashStop),
       );
@@ -1309,6 +1326,45 @@ class _ConfirmDialog extends StatelessWidget {
           ),
           onPressed: () => Navigator.pop(context, true),
           child: Text(l10n.confirmFlash),
+        ),
+      ],
+    );
+  }
+}
+
+/// Stopping mid-write kills the helper process outright — there's no
+/// in-protocol abort, so the board is left wherever that chunk's write
+/// landed and won't boot until reflashed. Make sure that's not a surprise.
+class _StopConfirmDialog extends StatelessWidget {
+  const _StopConfirmDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
+    return AlertDialog(
+      icon: const IconBadge(
+        icon: Icons.warning_amber_rounded,
+        color: AppColors.danger,
+        active: true,
+      ),
+      title: Text(l10n.confirmStopTitle),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Text(l10n.confirmStopWarning, style: theme.textTheme.bodyMedium),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(l10n.cancel),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.danger,
+            minimumSize: const Size(120, 44),
+          ),
+          onPressed: () => Navigator.pop(context, true),
+          child: Text(l10n.flashStop),
         ),
       ],
     );

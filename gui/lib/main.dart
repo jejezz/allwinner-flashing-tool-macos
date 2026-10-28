@@ -420,7 +420,7 @@ class _ControlColumn extends StatelessWidget {
     // visible regardless of how far either side is scrolled.
     return Scrollbar(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.only(right: 16, bottom: 72),
+        padding: const EdgeInsets.only(right: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

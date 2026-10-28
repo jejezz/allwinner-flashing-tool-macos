@@ -45,7 +45,7 @@ class AppColors {
 
 class AppRadius {
   const AppRadius._();
-  static const card = 24.0;
+  static const card = 16.0;
   static const tile = 20.0;
   static const chip = 999.0;
 }

@@ -8,6 +8,10 @@ import 'l10n/app_localizations.dart';
 
 enum Phase { idle, loadingImage, flashing, succeeded, failed }
 
+/// Card fusing runs independently of the USB flash above: a different target
+/// (a disk on this computer) with its own progress and result.
+enum SdCardPhase { idle, enumerating, writing, succeeded, failed }
+
 /// Everything the UI reads. Owns the device poll, the loaded image and the
 /// running flash.
 class FlasherModel extends ChangeNotifier {
@@ -99,7 +103,8 @@ class FlasherModel extends ChangeNotifier {
   AwRun? _run;
   Timer? _poll;
 
-  bool get busy => phase == Phase.flashing || phase == Phase.loadingImage;
+  bool get busy =>
+      phase == Phase.flashing || phase == Phase.loadingImage || sdBusy;
 
   /// Partitions that actually have something to write.
   int get flashableCount =>
@@ -323,6 +328,181 @@ class FlasherModel extends ChangeNotifier {
   /// Stop a running flash. The board is left mid-write and will not boot.
   void cancel() {
     _run?.cancel();
+  }
+
+  // --- Card fusing -------------------------------------------------------
+
+  SdCardPhase sdCardPhase = SdCardPhase.idle;
+  List<DiskInfo> sdDisks = [];
+  String? sdCardError;
+
+  /// Which safety rule the CLI refused on (`error.kind`), when it was one.
+  String? sdCardErrorKind;
+  String? sdCurrentRegion;
+
+  /// Past the writing: the card is being read back and compared.
+  bool sdVerifying = false;
+  final Map<String, int> _sdVerified = {};
+
+  int _sdTotalBytes = 0;
+  int _sdDoneBytes = 0;
+  int _sdCurrentBytes = 0;
+  double _sdCurrentFraction = 0;
+  AwRun? _sdRun;
+
+  /// What the GUI offers as a target: removable media that is not the system
+  /// disk, nothing else. The CLI's `--force` exists for experts; the window
+  /// never shows an internal or external hard drive, so it cannot be picked.
+  List<DiskInfo> get sdTargets =>
+      sdDisks.where((d) => d.removable && !d.isSystemDisk).toList();
+
+  bool get sdBusy =>
+      sdCardPhase == SdCardPhase.writing ||
+      sdCardPhase == SdCardPhase.enumerating;
+
+  /// A loaded image is all card fusing needs — no board has to be connected.
+  bool get canOpenSdCardDialog =>
+      _tool != null && imagePath != null && !busy && partitions.isNotEmpty;
+
+  /// Writing is the first half of the bar and reading back the second: the same
+  /// bytes cross twice.
+  double get sdCardProgress {
+    if (_sdTotalBytes == 0) return 0;
+    final verified = _sdVerified.values.fold(0, (a, b) => a + b);
+    final done = sdVerifying
+        ? _sdDoneBytes + verified
+        : _sdDoneBytes + _sdCurrentBytes * _sdCurrentFraction;
+    return (done / (_sdTotalBytes * 2)).clamp(0.0, 1.0);
+  }
+
+  Future<void> loadSdDisks() async {
+    if (_tool == null || sdCardPhase == SdCardPhase.writing) return;
+    sdCardPhase = SdCardPhase.enumerating;
+    sdCardError = null;
+    notifyListeners();
+    try {
+      final events = await _tool!.collect(['list-disks']);
+      final err = events.where((e) => e.event == 'error').firstOrNull;
+      if (err != null) {
+        sdDisks = [];
+        sdCardError = err.message;
+      } else {
+        final data = events.where((e) => e.event == 'disks').firstOrNull;
+        sdDisks = ((data?.raw['disks'] as List?) ?? const [])
+            .cast<Map<String, dynamic>>()
+            .map(DiskInfo.new)
+            .toList();
+        // No `disks` event at all means the helper does not know the command —
+        // an aw-tool built before card fusing existed. Saying "no disks found"
+        // there would send the user looking at their card reader instead.
+        if (data == null) {
+          sdCardError = _l10n?.sdCardToolOutdated ??
+              'This aw-tool does not support listing disks. Rebuild it.';
+        }
+      }
+    } catch (e) {
+      sdDisks = [];
+      sdCardError = '$e';
+    }
+    sdCardPhase = SdCardPhase.idle;
+    notifyListeners();
+  }
+
+  /// Write the loaded image to [disk]. [force] is the user's explicit
+  /// acknowledgement that a disk not reported as removable really is their card.
+  Future<void> startSdCardFlash(DiskInfo disk, {required bool force}) async {
+    if (_tool == null || imagePath == null || busy) return;
+    sdCardPhase = SdCardPhase.writing;
+    sdCardError = null;
+    sdCardErrorKind = null;
+    sdCurrentRegion = null;
+    sdVerifying = false;
+    _sdVerified.clear();
+    _sdTotalBytes = 0;
+    _sdDoneBytes = 0;
+    _sdCurrentBytes = 0;
+    _sdCurrentFraction = 0;
+    notifyListeners();
+
+    try {
+      final run = await _tool!.start([
+        'flash-sdcard',
+        imagePath!,
+        disk.id,
+        if (force) '--force',
+      ]);
+      _sdRun = run;
+      await for (final e in run.events) {
+        _applySdCard(e);
+        notifyListeners();
+      }
+      final code = await run.exitCode;
+      if (sdCardPhase == SdCardPhase.writing) {
+        sdCardPhase = SdCardPhase.failed;
+        sdCardError ??= code == 0
+            ? _l10n?.errorNoResult ?? 'Writing exited without a result.'
+            : run.stderrText.trim().isNotEmpty
+                ? run.stderrText.trim()
+                : 'exit code $code';
+      }
+    } catch (e) {
+      sdCardPhase = SdCardPhase.failed;
+      sdCardError = '$e';
+    } finally {
+      _sdRun = null;
+      notifyListeners();
+    }
+  }
+
+  void _applySdCard(AwEvent e) {
+    switch (e.event) {
+      case 'card_plan':
+        _sdTotalBytes = e.intOr('total_bytes', 0);
+      case 'partition_begin':
+        sdCurrentRegion = e.name;
+        _sdCurrentBytes = e.intOr('bytes', 0);
+        _sdCurrentFraction = 0;
+      case 'step':
+        if (e.step == 'verifying') {
+          sdVerifying = true;
+          sdCurrentRegion = null;
+        }
+      case 'progress':
+        final total = e.intOr('total', 0);
+        final name = e.name ?? '';
+        if (name.startsWith('verify:')) {
+          sdVerifying = true;
+          sdCurrentRegion = name.substring('verify:'.length);
+          _sdVerified[name] = e.intOr('written', 0);
+        } else {
+          _sdCurrentFraction = total == 0 ? 0 : e.intOr('written', 0) / total;
+        }
+      case 'partition_end':
+        _sdDoneBytes += e.intOr('bytes', 0);
+        _sdCurrentBytes = 0;
+        _sdCurrentFraction = 0;
+        sdCurrentRegion = null;
+      case 'error':
+        sdCardPhase = SdCardPhase.failed;
+        sdCardError = e.message;
+        sdCardErrorKind = e.raw['kind'] as String?;
+      case 'done':
+        sdCardPhase = SdCardPhase.succeeded;
+        _sdCurrentFraction = 0;
+        sdCurrentRegion = null;
+    }
+  }
+
+  /// Stop a running card write. The card is left half-written and will not
+  /// boot until it is written again.
+  void cancelSdCardFlash() => _sdRun?.cancel();
+
+  void resetSdCard() {
+    if (sdBusy) return;
+    sdCardPhase = SdCardPhase.idle;
+    sdCardError = null;
+    sdCardErrorKind = null;
+    notifyListeners();
   }
 
   static int _mb(int bytes) => bytes ~/ (1024 * 1024);

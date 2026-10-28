@@ -102,6 +102,57 @@
   "confirmFlash": "플래싱",
   "confirmStopTitle": "플래싱을 중단할까요?",
   "confirmStopWarning": "지금 중단하면 보드는 쓰다 만 상태로 남습니다 — 다시 플래싱하기 전까지 정상적으로 부팅하지 않습니다.",
+  "burnToSdCard": "SD카드로 굽기",
+  "sdCardCardHint": "보드 연결 없이 카드에 직접 굽습니다",
+  "sdCardOpen": "굽기…",
+  "sdCardDialogTitle": "SD카드로 굽기",
+  "sdCardSelectHint": "이미지를 구울 SD카드를 선택하세요. 선택한 디스크의 내용은 모두 지워집니다.",
+  "sdCardNoDisks": "이동식 디스크를 찾지 못했습니다. SD카드를 리더에 꽂고 새로고침하세요.",
+  "sdCardRefresh": "새로고침",
+  "sdCardBadgeRemovable": "이동식",
+  "sdCardNext": "다음",
+  "sdCardBack": "뒤로",
+  "sdCardConfirmTitle": "SD카드로 구울까요?",
+  "sdCardConfirmBody": "{name} ({sizeGb} GB)의 모든 데이터가 지워지며 되돌릴 수 없습니다.",
+  "@sdCardConfirmBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "sizeGb": {
+        "type": "String"
+      }
+    }
+  },
+  "sdCardWrite": "굽기",
+  "sdCardWriting": "SD카드로 굽는 중…",
+  "sdCardWritingRegion": "굽는 중: {region}",
+  "@sdCardWritingRegion": {
+    "placeholders": {
+      "region": {
+        "type": "String"
+      }
+    }
+  },
+  "sdCardKeepConnected": "굽기가 끝날 때까지 카드를 빼지 마세요.",
+  "sdCardConfirmStopTitle": "굽기를 중단할까요?",
+  "sdCardConfirmStopWarning": "지금 중단하면 카드는 쓰다 만 상태로 남아 부팅되지 않습니다. 카드를 다시 구우세요.",
+  "sdCardSucceededTitle": "SD카드 굽기 완료",
+  "sdCardSucceededBody": "카드에 쓴 내용을 다시 읽어 확인했습니다. 카드를 보드에 꽂고 전원을 켜세요. USB 연결은 필요 없습니다.",
+  "sdCardVerifying": "검증 중… 카드를 다시 읽어 대조합니다.",
+  "sdCardVerifyingRegion": "검증 중: {region}",
+  "@sdCardVerifyingRegion": {
+    "placeholders": {
+      "region": {
+        "type": "String"
+      }
+    }
+  },
+  "sdCardFailedTitle": "SD카드 굽기 실패",
+  "sdCardAdminHint": "디스크에 직접 쓰려면 관리자 권한이 필요합니다. Windows는 권한 요청 창을 승인하고, macOS는 앱을 sudo로 실행하세요.",
+  "sdCardClose": "닫기",
+  "sdCardPreparingAdmin": "준비 중… 권한 요청 창이 뜨면 승인하세요.",
+  "sdCardToolOutdated": "이 helper(aw-tool)는 디스크 목록을 지원하지 않습니다. 오래된 빌드일 수 있으니 `cargo build --release`로 다시 빌드하세요.",
   "toolMissingTitle": "helper를 찾을 수 없습니다",
   "toolMissingBody": "aw-tool 실행 파일을 찾지 못했습니다.\n개발 중이라면 저장소 루트에서 `cargo build --release`를 먼저 실행하세요.",
   "troubleshootTooltip": "문제 해결",

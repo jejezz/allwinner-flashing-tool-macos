@@ -15,6 +15,7 @@ import 'app_identity.dart';
 import 'aw_tool.dart';
 import 'flasher_model.dart';
 import 'l10n/app_localizations.dart';
+import 'sdcard_dialog.dart';
 import 'settings/app_settings.dart';
 import 'settings/legacy_language_file.dart';
 import 'settings/settings_menus.dart';
@@ -37,12 +38,12 @@ Future<void> main() async {
   await windowManager.ensureInitialized();
   // The layout stacks a device card, the partition table, options, progress
   // and a log pane; anything much shorter clips the log to a couple of lines.
-  const windowSize = Size(960, 760);
+  const windowSize = Size(900, 650);
   // 시작 위치는 center: true 대신 placeWindowAtStartup — 모니터마다 배율이 다른
   // Windows 듀얼 모니터에서 center: true가 창을 화면 밖에 놓는다.
   const options = WindowOptions(
     size: windowSize,
-    minimumSize: Size(720, 600),
+    minimumSize: Size(700, 540),
     center: false,
     title: AppIdentity.displayName,
   );
@@ -272,12 +273,12 @@ class _HomePageState extends State<HomePage> {
           child: model.toolError != null
               ? const _ToolMissing()
               : Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _Header(model: model, onAbout: widget.onAbout),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 8),
                       Expanded(
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -287,9 +288,10 @@ class _HomePageState extends State<HomePage> {
                               child: _ControlColumn(
                                 model: model,
                                 onPick: _pickImage,
+                                onSdCard: () => showSdCardDialog(context, model),
                               ),
                             ),
-                            const SizedBox(width: 16),
+                            const SizedBox(width: 10),
                             Expanded(
                               flex: 4,
                               child: _DetailColumn(model: model),
@@ -352,8 +354,8 @@ class _Header extends StatelessWidget {
 
     final row = Row(
       children: [
-        const AppMark(size: 44),
-        const SizedBox(width: 14),
+        const AppMark(size: 34),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,10 +416,15 @@ class _Header extends StatelessWidget {
 }
 
 class _ControlColumn extends StatelessWidget {
-  const _ControlColumn({required this.model, required this.onPick});
+  const _ControlColumn({
+    required this.model,
+    required this.onPick,
+    required this.onSdCard,
+  });
 
   final FlasherModel model;
   final VoidCallback onPick;
+  final VoidCallback onSdCard;
 
   @override
   Widget build(BuildContext context) {
@@ -432,17 +439,19 @@ class _ControlColumn extends StatelessWidget {
     // visible regardless of how far either side is scrolled.
     return Scrollbar(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.only(right: 16),
+        padding: const EdgeInsets.only(right: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _DeviceCard(model: model),
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
             _ImageCard(model: model, onPick: onPick),
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
+            _SdCardCard(model: model, onOpen: onSdCard),
+            const SizedBox(height: 8),
             _OptionsCard(model: model),
-            const SizedBox(height: 14),
-            SizedBox(height: 280, child: _PartitionCard(model: model)),
+            const SizedBox(height: 8),
+            SizedBox(height: 210, child: _PartitionCard(model: model)),
           ],
         ),
       ),
@@ -461,7 +470,7 @@ class _StepsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return GlassCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -508,7 +517,7 @@ class _Step extends StatelessWidget {
     final theme = Theme.of(context);
     final color = done ? AppColors.success : AppColors.idle;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -578,7 +587,7 @@ class _DeviceCard extends StatelessWidget {
             color: connected ? accent : AppColors.idle,
             active: connected,
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -655,7 +664,7 @@ class _ImageCardState extends State<_ImageCard> {
             color: loaded ? AppColors.accent : AppColors.idle,
             active: loaded,
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -687,6 +696,51 @@ class _ImageCardState extends State<_ImageCard> {
           ),
         ],
       ),
+      ),
+    );
+  }
+}
+
+/// Entry point for card fusing: enabled as soon as an image is loaded, since it
+/// needs no board on the USB cable.
+class _SdCardCard extends StatelessWidget {
+  const _SdCardCard({required this.model, required this.onOpen});
+
+  final FlasherModel model;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
+    final enabled = model.canOpenSdCardDialog;
+    return GlassCard(
+      accent: AppColors.warning,
+      active: enabled,
+      child: Row(
+        children: [
+          IconBadge(
+            icon: Icons.sd_card,
+            color: enabled ? AppColors.warning : AppColors.idle,
+            active: enabled,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l10n.burnToSdCard, style: theme.textTheme.titleMedium),
+                const SizedBox(height: 3),
+                Text(l10n.sdCardCardHint, style: theme.textTheme.labelSmall),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: enabled ? onOpen : null,
+            child: Text(l10n.sdCardOpen),
+          ),
+        ],
       ),
     );
   }
@@ -749,11 +803,11 @@ class _OptionRow extends StatelessWidget {
     return Opacity(
       opacity: enabled ? 1 : 0.5,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         child: Row(
           children: [
-            IconBadge(icon: icon, color: AppColors.primary, size: 36),
-            const SizedBox(width: 14),
+            IconBadge(icon: icon, color: AppColors.primary, size: 30),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -764,7 +818,19 @@ class _OptionRow extends StatelessWidget {
                 ],
               ),
             ),
-            Switch(value: value, onChanged: onChanged),
+            // The stock switch is 52x32; scaled to ~73% it sits level with the
+            // two-line label instead of dominating the row.
+            SizedBox(
+              width: 38,
+              height: 24,
+              child: FittedBox(
+                child: Switch(
+                  value: value,
+                  onChanged: onChanged,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -833,7 +899,7 @@ class _ProgressCard extends StatelessWidget {
               color: AppColors.danger,
               active: true,
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -863,7 +929,7 @@ class _ProgressCard extends StatelessWidget {
               color: AppColors.success,
               active: true,
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1005,7 +1071,7 @@ class _PartitionCard extends StatelessWidget {
     final parts = model.partitions;
 
     return GlassCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 10, 12),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1224,7 +1290,7 @@ class _LogCardState extends State<_LogCard> {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
     return GlassCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 10, 12),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

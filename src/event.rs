@@ -7,7 +7,7 @@
 //! reword. Without it, the same information is printed as before.
 
 use serde_json::{json, Value};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::io::{IsTerminal, Write};
 use std::time::{Duration, Instant};
 
@@ -22,6 +22,9 @@ pub struct Reporter {
     /// ordinary line has to break out of it first.
     line_pending: Cell<bool>,
     last_progress: Cell<Option<Instant>>,
+    /// Where JSON events go instead of stdout — the socket of the elevated
+    /// card writer, whose own console nobody sees.
+    sink: Option<RefCell<Box<dyn Write>>>,
 }
 
 impl Reporter {
@@ -30,10 +33,27 @@ impl Reporter {
             json,
             line_pending: Cell::new(false),
             last_progress: Cell::new(None),
+            sink: None,
+        }
+    }
+
+    /// A JSON reporter that writes its events to `sink` rather than stdout.
+    pub fn to_writer(sink: Box<dyn Write>) -> Self {
+        Self {
+            sink: Some(RefCell::new(sink)),
+            ..Self::new(true)
         }
     }
 
     fn emit(&self, value: Value) {
+        if let Some(sink) = &self.sink {
+            // The reader going away is how a cancelled run ends; there is no
+            // one left to tell.
+            let mut w = sink.borrow_mut();
+            let _ = writeln!(w, "{value}");
+            let _ = w.flush();
+            return;
+        }
         println!("{value}");
         // A front-end reading the pipe should see events as they happen, not
         // when the block buffer fills — stdout is not line-buffered when it is
@@ -134,6 +154,23 @@ impl Reporter {
                 println!("      선택된 파티션만 기록: {}", names.join(", "));
             }
         }
+    }
+
+    /// What a `flash-sdcard` run is about to write, announced before the card
+    /// is touched. `regions` are (name, bytes) in write order.
+    pub fn card_plan(&self, regions: &[(&str, u64)]) {
+        if !self.json {
+            return;
+        }
+        let total: u64 = regions.iter().map(|(_, bytes)| bytes).sum();
+        self.emit(json!({
+            "event": "card_plan",
+            "regions": regions
+                .iter()
+                .map(|(name, bytes)| json!({ "name": name, "bytes": bytes }))
+                .collect::<Vec<_>>(),
+            "total_bytes": total,
+        }));
     }
 
     pub fn partition_begin(&self, index: usize, total: usize, name: &str, bytes: u64) {
@@ -239,11 +276,15 @@ impl Reporter {
     pub fn fail(&self, error: &anyhow::Error) {
         if self.json {
             let causes: Vec<String> = error.chain().map(|c| c.to_string()).collect();
-            self.emit(json!({
+            let mut event = json!({
                 "event": "error",
                 "message": format!("{error:#}"),
                 "causes": causes,
-            }));
+            });
+            if let Some(safety) = error.downcast_ref::<crate::sdcard::CardError>() {
+                event["kind"] = json!(safety.kind);
+            }
+            self.emit(event);
         } else {
             self.clear_line();
             eprintln!("Error: {error:#}");

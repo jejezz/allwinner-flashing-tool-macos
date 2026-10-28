@@ -93,3 +93,19 @@ pub fn read_checksum(buf: &[u8]) -> Result<u32> {
         buf[CHECK_SUM_OFFSET..CHECK_SUM_OFFSET + 4].try_into().unwrap(),
     ))
 }
+
+/// The check the card sprite, boot0 and the BootROM apply to a header: add up
+/// every little-endian u32 in `[0, length)`, swap the stored sum for
+/// `STAMP_VALUE`, and the result must equal the stored sum
+/// (`sunxi_verify_checksum` in u-boot's board_common.c). `sum_offset` is where
+/// the stored sum sits — 12 in a boot0 header, 20 in a TOC1 header.
+pub fn checksum_ok(buf: &[u8], length: usize, sum_offset: usize) -> bool {
+    if length % 4 != 0 || buf.len() < length || sum_offset + 4 > length {
+        return false;
+    }
+    let stored = u32::from_le_bytes(buf[sum_offset..sum_offset + 4].try_into().unwrap());
+    let sum = buf[..length]
+        .chunks_exact(4)
+        .fold(0u32, |s, w| s.wrapping_add(u32::from_le_bytes(w.try_into().unwrap())));
+    sum.wrapping_sub(stored).wrapping_add(STAMP_VALUE) == stored
+}

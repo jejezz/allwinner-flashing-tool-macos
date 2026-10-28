@@ -279,7 +279,6 @@ class _HomePageState extends State<HomePage> {
                               child: _ControlColumn(
                                 model: model,
                                 onPick: _pickImage,
-                                onFlash: _confirmAndFlash,
                               ),
                             ),
                             const SizedBox(width: 16),
@@ -295,6 +294,10 @@ class _HomePageState extends State<HomePage> {
                 ),
         ),
       ),
+      floatingActionButton: model.toolError == null
+          ? _ActionButton(model: model, onFlash: _confirmAndFlash)
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 }
@@ -399,15 +402,10 @@ class _Header extends StatelessWidget {
 }
 
 class _ControlColumn extends StatelessWidget {
-  const _ControlColumn({
-    required this.model,
-    required this.onPick,
-    required this.onFlash,
-  });
+  const _ControlColumn({required this.model, required this.onPick});
 
   final FlasherModel model;
   final VoidCallback onPick;
-  final VoidCallback onFlash;
 
   @override
   Widget build(BuildContext context) {
@@ -417,34 +415,25 @@ class _ControlColumn extends StatelessWidget {
     // header — so the card stack scrolls as a whole, with a right-side gutter
     // so the scrollbar doesn't sit flush against the cards.
     //
-    // The flash button sits *outside* that scroll view, pinned to the
-    // bottom, so it's always visible rather than something to scroll down
-    // for once the partition list pushes everything else down.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          child: Scrollbar(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(right: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _DeviceCard(model: model),
-                  const SizedBox(height: 14),
-                  _ImageCard(model: model, onPick: onPick),
-                  const SizedBox(height: 14),
-                  _OptionsCard(model: model),
-                  const SizedBox(height: 14),
-                  SizedBox(height: 280, child: _PartitionCard(model: model)),
-                ],
-              ),
-            ),
-          ),
+    // The flash button is the Scaffold's floating action button (bottom
+    // right of the whole window), not part of this column, so it's always
+    // visible regardless of how far either side is scrolled.
+    return Scrollbar(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(right: 16, bottom: 72),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _DeviceCard(model: model),
+            const SizedBox(height: 14),
+            _ImageCard(model: model, onPick: onPick),
+            const SizedBox(height: 14),
+            _OptionsCard(model: model),
+            const SizedBox(height: 14),
+            SizedBox(height: 280, child: _PartitionCard(model: model)),
+          ],
         ),
-        const SizedBox(height: 18),
-        _ActionButton(model: model, onFlash: onFlash),
-      ],
+      ),
     );
   }
 }
@@ -771,6 +760,10 @@ class _OptionRow extends StatelessWidget {
   }
 }
 
+/// The main call to action — the Scaffold's floating action button, so it
+/// stays pinned at the bottom right regardless of how far either column is
+/// scrolled, rather than something that can get pushed out of view by a
+/// long partition list.
 class _ActionButton extends StatelessWidget {
   const _ActionButton({required this.model, required this.onFlash});
 
@@ -781,20 +774,18 @@ class _ActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     if (model.phase == Phase.flashing) {
-      return FilledButton.icon(
-        style: FilledButton.styleFrom(backgroundColor: AppColors.danger)
-            .merge(AppTheme.bigButton),
+      return FloatingActionButton.extended(
+        backgroundColor: AppColors.danger,
         onPressed: model.cancel,
         icon: const Icon(Icons.stop_circle_outlined),
         label: Text(l10n.flashStop),
       );
     }
-    return FilledButton.icon(
-      style: FilledButton.styleFrom(
-        backgroundColor: AppColors.accent,
-        disabledBackgroundColor: AppColors.idle.withValues(alpha: 0.22),
-      ).merge(AppTheme.bigButton),
-      onPressed: model.canFlash ? onFlash : null,
+    final enabled = model.canFlash;
+    return FloatingActionButton.extended(
+      backgroundColor: enabled ? AppColors.accent : AppColors.idle.withValues(alpha: 0.22),
+      foregroundColor: enabled ? null : Colors.white.withValues(alpha: 0.4),
+      onPressed: enabled ? onFlash : null,
       icon: const Icon(Icons.bolt),
       label: Text(
         model.phase == Phase.succeeded ? l10n.flashAgain : l10n.flashStart,

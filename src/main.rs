@@ -112,12 +112,15 @@ enum Command {
     /// own; use this when you just want the device in EFEX.
     Bootstrap {
         image: PathBuf,
-        /// fes1 load/run address (default: sun55iw3/T527).
-        #[arg(long, default_value = "0x4c000")]
-        fes1_addr: String,
-        /// u-boot load/run address (default: sun55iw3/T527).
-        #[arg(long, default_value = "0x4a000000")]
-        uboot_addr: String,
+        /// fes1 load/run address. Default: auto-detected from the device's
+        /// soc_id (0x4c000 for sun55iw3/T527/A523, 0x28000 for
+        /// sun50iw9/T507/H616).
+        #[arg(long)]
+        fes1_addr: Option<String>,
+        /// u-boot load/run address (default: 0x4a000000, shared by all
+        /// known SoCs).
+        #[arg(long)]
+        uboot_addr: Option<String>,
     },
 
     /// Set the erase flag (Format Fusing vs Overwrite-only — see docs
@@ -637,8 +640,8 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             let img = imagewty::ImageWty::open(&image)?;
             bootstrap::fel_to_efex(
                 &img,
-                parse_hex_addr(&fes1_addr)?,
-                parse_hex_addr(&uboot_addr)?,
+                fes1_addr.map(|s| parse_hex_addr(&s)).transpose()?,
+                uboot_addr.map(|s| parse_hex_addr(&s)).transpose()?,
                 rep,
             )?;
         }
@@ -724,7 +727,7 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             );
 
             if !no_bootstrap {
-                bootstrap::fel_to_efex(&img, bootstrap::FES1_ADDR, bootstrap::UBOOT_ADDR, rep)?;
+                bootstrap::fel_to_efex(&img, None, None, rep)?;
             }
 
             let mut dev = efex::EfexDevice::open()?;

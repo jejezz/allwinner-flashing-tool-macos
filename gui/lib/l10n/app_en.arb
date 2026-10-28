@@ -93,7 +93,16 @@
   "sdCardConfirmStopTitle": "Stop writing?",
   "sdCardConfirmStopWarning": "Stopping now leaves the card half-written and it will not boot. Write the card again afterwards.",
   "sdCardSucceededTitle": "SD card written",
-  "sdCardSucceededBody": "Put the card in the board and power it on. No USB connection is needed.",
+  "sdCardSucceededBody": "The card was read back and checked. Put it in the board and power it on. No USB connection is needed.",
+  "sdCardVerifying": "Verifying… reading the card back to compare.",
+  "sdCardVerifyingRegion": "Verifying: {region}",
+  "@sdCardVerifyingRegion": {
+    "placeholders": {
+      "region": {
+        "type": "String"
+      }
+    }
+  },
   "sdCardFailedTitle": "SD card write failed",
   "sdCardAdminHint": "Writing straight to a disk needs administrator rights. On Windows approve the permission prompt; on macOS run the app with sudo.",
   "sdCardClose": "Close",

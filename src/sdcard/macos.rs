@@ -113,6 +113,17 @@ pub fn enumerate() -> Result<Vec<DiskInfo>> {
     Ok(disks)
 }
 
+/// The raw (uncached) device for reading back. Unmounted first, or macOS
+/// remounts the card and fights over it.
+pub fn open_for_read(disk: &DiskInfo) -> Result<std::fs::File> {
+    let _ = Command::new("diskutil").args(["unmountDisk", &disk.id]).status();
+    let raw = disk.id.replacen("/dev/disk", "/dev/rdisk", 1);
+    OpenOptions::new()
+        .read(true)
+        .open(&raw)
+        .with_context(|| format!("opening {raw} for reading (raw disk access needs root: run with sudo)"))
+}
+
 pub fn open_for_write(disk: &DiskInfo) -> Result<OpenDisk> {
     let status = Command::new("diskutil")
         .args(["unmountDisk", &disk.id])

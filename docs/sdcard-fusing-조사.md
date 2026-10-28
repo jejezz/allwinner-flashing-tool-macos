@@ -23,6 +23,26 @@
 
 ---
 
+## 0.5 정정과 실물 검증 (구현 후 추가)
+
+구현하면서 **실제 SDK 이미지와, PhoenixCard가 구운 실제 카드의 덤프**로 이 문서의 가정을 확인했다. 아래가 소스 분석만으로 적었던 내용과 달라진 부분이다.
+
+| 항목 | 이 문서의 처음 설명 | 실물로 확인된 것 |
+|---|---|---|
+| 카드에 써지는 boot0 | `work_mode`를 `0x11`로 패치 + 체크섬 재계산 | 맞다 — PhoenixCard의 boot0와 **바이트 단위로 동일**(offset 224와 체크섬 12바이트만 다름) |
+| boot_package(TOC1) | 수정 없이 복사 | 맞다 — 카드 위 값이 이미지와 0바이트 차이 |
+| boot0 체크섬 범위 | `fix_checksum`을 그대로 재사용 | PhoenixCard 카드의 체크섬은 **앞 48바이트(헤더)** 합이다. SDK 원본 boot0는 전체 61440바이트 합. BootROM이 어느 쪽을 보는지는 미확정 |
+| boot0 헤더 `length` | (오프셋 구분 없음) | boot0는 **offset 16**, u-boot 헤더는 offset 20 |
+| "BootROM이 boot0의 work_mode를 보고 분기" (1절) | — | 정확하지 않다. work_mode는 u-boot 헤더 안(`uboot_spare_head.boot_data.work_mode`)에서 읽히고, **boot0(SPL)가 `get_card_work_mode()`로 그 값을 채워 넣는다**(`spl-pub/nboot/main/boot0_main.c:209`의 `update_uboot_info`). `get_card_work_mode()` 본체는 미공개 라이브러리라 읽는 위치는 소스로 확인하지 못했고, 카드의 실물이 offset 224임을 보여 줄 뿐이다 |
+
+중간에 "work_mode가 boot0가 아니라 u-boot에 있으니 `boot_package`의 u-boot를 패치해야 한다"는 가설을 세워 구현했다가 되돌렸다. 실제 카드가 그렇지 않음을 보여 줬기 때문이다 — **소스를 읽은 추론보다 실물 한 장이 강한 증거였다.**
+
+벤더 도구에 대한 단서(이미지 안의 `cardtool.fex` 문자열): `card_work_mode=0x%x`, `use default card_work_mode`, `uboot magic is error`, `Magic Complete` / `Magic Failed`. 또 `cardscript.fex`는 레이아웃(boot0 → 16, `BOOTPKG` → 32800, `[card_boot] start = 40960`)을 그대로 확인해 준다.
+
+**여전히 확인하지 못한 것**: 이 도구로 쓴 카드를 보드에 꽂았을 때 설치가 끝나는지(보드 필요), BootROM의 boot0 체크섬 기준, `get_card_work_mode()`가 offset 224를 읽는 조건.
+
+---
+
 ## 1. work_mode 전체 표
 
 출처: `include/spare_head.h:13-27`

@@ -340,6 +340,10 @@ class FlasherModel extends ChangeNotifier {
   String? sdCardErrorKind;
   String? sdCurrentRegion;
 
+  /// Past the writing: the card is being read back and compared.
+  bool sdVerifying = false;
+  final Map<String, int> _sdVerified = {};
+
   int _sdTotalBytes = 0;
   int _sdDoneBytes = 0;
   int _sdCurrentBytes = 0;
@@ -360,10 +364,15 @@ class FlasherModel extends ChangeNotifier {
   bool get canOpenSdCardDialog =>
       _tool != null && imagePath != null && !busy && partitions.isNotEmpty;
 
+  /// Writing is the first half of the bar and reading back the second: the same
+  /// bytes cross twice.
   double get sdCardProgress {
     if (_sdTotalBytes == 0) return 0;
-    final done = _sdDoneBytes + _sdCurrentBytes * _sdCurrentFraction;
-    return (done / _sdTotalBytes).clamp(0.0, 1.0);
+    final verified = _sdVerified.values.fold(0, (a, b) => a + b);
+    final done = sdVerifying
+        ? _sdDoneBytes + verified
+        : _sdDoneBytes + _sdCurrentBytes * _sdCurrentFraction;
+    return (done / (_sdTotalBytes * 2)).clamp(0.0, 1.0);
   }
 
   Future<void> loadSdDisks() async {
@@ -407,6 +416,8 @@ class FlasherModel extends ChangeNotifier {
     sdCardError = null;
     sdCardErrorKind = null;
     sdCurrentRegion = null;
+    sdVerifying = false;
+    _sdVerified.clear();
     _sdTotalBytes = 0;
     _sdDoneBytes = 0;
     _sdCurrentBytes = 0;
@@ -451,9 +462,21 @@ class FlasherModel extends ChangeNotifier {
         sdCurrentRegion = e.name;
         _sdCurrentBytes = e.intOr('bytes', 0);
         _sdCurrentFraction = 0;
+      case 'step':
+        if (e.step == 'verifying') {
+          sdVerifying = true;
+          sdCurrentRegion = null;
+        }
       case 'progress':
         final total = e.intOr('total', 0);
-        _sdCurrentFraction = total == 0 ? 0 : e.intOr('written', 0) / total;
+        final name = e.name ?? '';
+        if (name.startsWith('verify:')) {
+          sdVerifying = true;
+          sdCurrentRegion = name.substring('verify:'.length);
+          _sdVerified[name] = e.intOr('written', 0);
+        } else {
+          _sdCurrentFraction = total == 0 ? 0 : e.intOr('written', 0) / total;
+        }
       case 'partition_end':
         _sdDoneBytes += e.intOr('bytes', 0);
         _sdCurrentBytes = 0;

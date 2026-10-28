@@ -255,11 +255,15 @@ class _SdCardDialogState extends State<SdCardDialog> {
             ),
             const SizedBox(height: 10),
             Text(
-              region == null
-                  // On Windows the writer is started through a UAC prompt, which
-                  // can sit behind other windows; say what is being waited for.
-                  ? (Platform.isWindows ? l10n.sdCardPreparingAdmin : l10n.progressPreparing)
-                  : '${l10n.sdCardWritingRegion(region)}  ·  $pct%',
+              model.sdVerifying
+                  ? (region == null
+                      ? l10n.sdCardVerifying
+                      : '${l10n.sdCardVerifyingRegion(region)}  ·  $pct%')
+                  : region == null
+                      // On Windows the writer is started through a UAC prompt,
+                      // which can sit behind other windows; say what is awaited.
+                      ? (Platform.isWindows ? l10n.sdCardPreparingAdmin : l10n.progressPreparing)
+                      : '${l10n.sdCardWritingRegion(region)}  ·  $pct%',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),

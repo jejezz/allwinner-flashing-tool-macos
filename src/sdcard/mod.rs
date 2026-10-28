@@ -8,7 +8,6 @@
 //! [`check_disk_safety`], a pure function that is unit-tested on its own.
 
 use crate::event::Reporter;
-use crate::sunxi_head;
 use crate::sys_partition::SECTOR_SIZE;
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
@@ -20,7 +19,11 @@ use std::path::Path;
 use std::time::Instant;
 
 mod relay;
-use relay::Target;
+mod verify;
+use relay::{ReadSeek, Target, WorkerHost};
+use verify::RegionDigest;
+
+pub use verify::{card_boot0, check_card_boot0, check_toc1};
 
 #[cfg(windows)]
 mod windows;
@@ -42,6 +45,10 @@ mod platform {
     }
 
     pub fn open_for_write(_disk: &DiskInfo) -> Result<OpenDisk> {
+        bail!("SD-card fusing is only supported on Windows and macOS")
+    }
+
+    pub fn open_for_read(_disk: &DiskInfo) -> Result<std::fs::File> {
         bail!("SD-card fusing is only supported on Windows and macOS")
     }
 }
@@ -86,12 +93,12 @@ impl DiskInfo {
 
 /// A refused write, tagged so a front-end can explain which rule fired.
 #[derive(Debug)]
-pub struct SafetyError {
+pub struct CardError {
     pub kind: &'static str,
     message: String,
 }
 
-impl SafetyError {
+impl CardError {
     fn new(kind: &'static str, message: impl Into<String>) -> Self {
         Self {
             kind,
@@ -100,13 +107,13 @@ impl SafetyError {
     }
 }
 
-impl fmt::Display for SafetyError {
+impl fmt::Display for CardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)
     }
 }
 
-impl std::error::Error for SafetyError {}
+impl std::error::Error for CardError {}
 
 /// A disk opened for writing. `guard` keeps platform state (Windows volume
 /// locks) alive for as long as the file is.
@@ -137,15 +144,15 @@ pub fn check_disk_safety(
     required_bytes: u64,
     max_size_bytes: u64,
     force: bool,
-) -> std::result::Result<(), SafetyError> {
+) -> std::result::Result<(), CardError> {
     if disk.is_system_disk {
-        return Err(SafetyError::new(
+        return Err(CardError::new(
             "is_system_disk",
             format!("{} is the system disk; refusing to write to it", disk.id),
         ));
     }
     if disk.size_bytes < required_bytes {
-        return Err(SafetyError::new(
+        return Err(CardError::new(
             "too_small",
             format!(
                 "{} is {} bytes, but the card layout needs at least {} bytes",
@@ -154,7 +161,7 @@ pub fn check_disk_safety(
         ));
     }
     if !disk.removable && !force {
-        return Err(SafetyError::new(
+        return Err(CardError::new(
             "not_removable",
             format!(
                 "{} is not reported as removable media; it may be an internal disk \
@@ -164,7 +171,7 @@ pub fn check_disk_safety(
         ));
     }
     if max_size_bytes != 0 && disk.size_bytes > max_size_bytes && !force {
-        return Err(SafetyError::new(
+        return Err(CardError::new(
             "too_large",
             format!(
                 "{} is {} bytes, above the {} byte limit (--max-size-bytes); \
@@ -183,7 +190,7 @@ fn recheck(disk: &DiskInfo) -> Result<()> {
     let now = enumerate_disks()?;
     match now.iter().find(|d| same_id(&d.id, &disk.id)) {
         Some(cur) if cur == disk => Ok(()),
-        _ => Err(SafetyError::new(
+        _ => Err(CardError::new(
             "size_mismatch",
             format!("{} changed or disappeared since it was checked", disk.id),
         )
@@ -201,6 +208,8 @@ fn open_for_write(disk: &DiskInfo) -> Result<OpenDisk> {
 pub struct FlashParams {
     pub force: bool,
     pub max_size_bytes: u64,
+    /// Read the card back after writing and compare.
+    pub verify: bool,
 }
 
 fn open_target(disk: &DiskInfo) -> Result<Target> {
@@ -209,6 +218,14 @@ fn open_target(disk: &DiskInfo) -> Result<Target> {
         out: Box::new(opened.file),
         guard: opened.guard,
     })
+}
+
+/// Read access that bypasses the OS cache. Only for a disk that has just been
+/// found by [`enumerate_disks`]: reading is harmless, but it is still the same
+/// disk the user named.
+fn open_reader(disk: &DiskInfo) -> Result<Box<dyn ReadSeek>> {
+    recheck(disk)?;
+    Ok(Box::new(platform::open_for_read(disk)?))
 }
 
 /// Write the card layout to `disk`. Without administrator rights (Windows) the
@@ -238,36 +255,101 @@ pub fn flash(
     let mut firmware =
         File::open(image).with_context(|| format!("opening {:?}", image))?;
     let mut target = open_target(disk)?;
-    write_card_layout(&mut target.out, boot0, boot_package, &mut firmware, firmware_len, rep)?;
+    let written =
+        write_card_layout(&mut target.out, boot0, boot_package, &mut firmware, firmware_len, rep)?;
     target.out.sync().context("flushing the card after writing")?;
+    if params.verify {
+        verify::verify_written(&mut open_reader(disk)?, &written, rep)?;
+    }
     Ok(())
 }
 
-/// The elevated half of [`flash`]: connect back to the parent, take the data it
-/// streams, and write it. It does not trust the parent — the disk is looked up
-/// and safety-checked again here, with the parent's own `--force` and size
-/// limit but never a way around the system-disk and too-small refusals.
+/// Check a card without writing to it. With an `image` the card must hold
+/// exactly that image's layout; without one only the boot chain's structure is
+/// judged. Like [`flash`], an unelevated Windows process hands the reading to
+/// an elevated worker.
+pub fn verify_card(
+    disk: &DiskInfo,
+    expected: Option<(&[u8], &[u8], &Path, u64)>,
+    rep: &Reporter,
+) -> Result<()> {
+    let lens = expected.map_or((0, 0, 0), |(b0, bp, _, fw)| (b0.len() as u64, bp.len() as u64, fw));
+    #[cfg(windows)]
+    if !platform::is_elevated() {
+        return platform::verify_via_worker(disk, expected, lens, rep);
+    }
+    let digests = match expected {
+        Some((b0, bp, image, fw)) => Some(expected_digests(b0, bp, image, fw)?),
+        None => None,
+    };
+    let mut card = open_reader(disk)?;
+    let mut actual = Vec::new();
+    for (name, lba, len) in verify::region_list(lens.0, lens.1, lens.2) {
+        actual.push(verify::digest_card(&mut card, name, lba, len, rep)?);
+    }
+    relay::judge(
+        digests.as_deref(),
+        Some(&actual),
+        Some(verify::check_card_structure(&mut card).map_err(|e| format!("{e:#}"))),
+        rep,
+    )
+}
+
+/// What a card written from this image should hold, region by region. Reads the
+/// whole image once.
+pub fn expected_digests(
+    boot0: &[u8],
+    boot_package: &[u8],
+    image: &Path,
+    firmware_len: u64,
+) -> Result<Vec<RegionDigest>> {
+    let mut firmware =
+        File::open(image).with_context(|| format!("opening {:?}", image))?;
+    let mut out = Vec::new();
+    for (name, lba, len) in verify::region_list(boot0.len() as u64, boot_package.len() as u64, firmware_len)
+    {
+        out.push(match name {
+            "firmware" => verify::digest_source(name, lba, len, &mut firmware)?,
+            "boot0" => verify::digest_source(name, lba, len, &mut &boot0[..])?,
+            _ => verify::digest_source(name, lba, len, &mut &boot_package[..])?,
+        });
+    }
+    Ok(out)
+}
+
+/// The disks the elevated worker really touches. Each request is judged here,
+/// not trusted from the header's sender.
+struct RealHost;
+
+impl RealHost {
+    fn find(&self, h: &relay::Header) -> Result<DiskInfo> {
+        enumerate_disks()?
+            .into_iter()
+            .find(|d| same_id(&d.id, &h.disk))
+            .with_context(|| format!("disk '{}' not found", h.disk))
+    }
+}
+
+impl WorkerHost for RealHost {
+    fn open_write(&mut self, h: &relay::Header) -> Result<Target> {
+        let disk = self.find(h)?;
+        check_disk_safety(&disk, required_bytes(h.firmware_len), h.max_size_bytes, h.force)?;
+        open_target(&disk)
+    }
+
+    fn open_read(&mut self, h: &relay::Header) -> Result<Box<dyn ReadSeek>> {
+        open_reader(&self.find(h)?)
+    }
+}
+
+/// The elevated half of [`flash`] and [`verify_card`]: connect back to the
+/// parent and do what it asks. It does not trust the parent — a write has the
+/// disk looked up and safety-checked again here, with the parent's own `--force`
+/// and size limit but never a way around the system-disk and too-small refusals.
 pub fn run_worker(port: u16, token: &str) -> Result<()> {
     let stream =
         TcpStream::connect(("127.0.0.1", port)).context("connecting to the parent process")?;
-    relay::worker_session(stream, token, &mut |h| {
-        let disks = enumerate_disks()?;
-        let disk = disks
-            .iter()
-            .find(|d| same_id(&d.id, &h.disk))
-            .with_context(|| format!("disk '{}' not found", h.disk))?;
-        check_disk_safety(disk, required_bytes(h.firmware_len), h.max_size_bytes, h.force)?;
-        open_target(disk)
-    })
-}
-
-/// boot0 as the card needs it: work_mode = CARD_PRODUCT, checksum recomputed.
-pub fn card_boot0(raw: &[u8]) -> Result<Vec<u8>> {
-    let mut data = raw.to_vec();
-    sunxi_head::set_work_mode(&mut data, sunxi_head::WORK_MODE_CARD_PRODUCT)
-        .context("patching work_mode in boot0")?;
-    sunxi_head::fix_checksum(&mut data).context("recomputing boot0 checksum")?;
-    Ok(data)
+    relay::worker_session(stream, token, &mut RealHost)
 }
 
 /// The fixed LBAs leave a bounded window for each blob; one that overruns would
@@ -296,10 +378,11 @@ fn write_region<W: Write + Seek>(
     len: u64,
     name: &str,
     rep: &Reporter,
-) -> Result<()> {
+) -> Result<RegionDigest> {
     out.seek(SeekFrom::Start(lba * SECTOR_SIZE))
         .with_context(|| format!("seeking to LBA {lba} for {name}"))?;
     let mut buf = vec![0u8; CHUNK];
+    let mut crcs = Vec::new();
     let mut done = 0u64;
     while done < len {
         let want = (len - done).min(CHUNK as u64) as usize;
@@ -309,11 +392,14 @@ fn write_region<W: Write + Seek>(
         buf[want..padded].fill(0);
         out.write_all(&buf[..padded])
             .with_context(|| format!("writing {name} at byte {done}"))?;
+        // What was just written, as it will sit on the card — the read-back is
+        // compared against this.
+        crcs.push(verify::crc32(&buf[..padded]));
         done += want as u64;
         rep.progress(name, done, len);
     }
     rep.progress_done(name, len);
-    Ok(())
+    Ok(RegionDigest { name: name.to_string(), lba, len, crcs })
 }
 
 /// Write the whole card layout. boot0 goes last: until it lands the BootROM
@@ -326,26 +412,21 @@ pub fn write_card_layout<W: Write + Seek>(
     firmware: &mut dyn Read,
     firmware_len: u64,
     rep: &Reporter,
-) -> Result<()> {
+) -> Result<Vec<RegionDigest>> {
     validate_layout(boot0.len() as u64, boot_package.len() as u64)?;
 
-    let bp_len = boot_package.len() as u64;
-    let regions: [(&str, u64, u64); 4] = [
-        ("firmware", FIRMWARE_LBA, firmware_len),
-        ("boot_package", BOOT_PACKAGE_LBA, bp_len),
-        ("boot_package_backup", BOOT_PACKAGE_BACKUP_LBA, bp_len),
-        ("boot0", BOOT0_LBA, boot0.len() as u64),
-    ];
+    let regions = verify::region_list(boot0.len() as u64, boot_package.len() as u64, firmware_len);
     rep.card_plan(&regions.map(|(name, _, bytes)| (name, bytes)));
 
+    let mut written = Vec::new();
     for (i, (name, lba, bytes)) in regions.iter().enumerate() {
         rep.partition_begin(i + 1, regions.len(), name, *bytes);
         let started = Instant::now();
-        match *name {
+        written.push(match *name {
             "firmware" => write_region(out, *lba, firmware, *bytes, name, rep)?,
             "boot0" => write_region(out, *lba, &mut &boot0[..], *bytes, name, rep)?,
             _ => write_region(out, *lba, &mut &boot_package[..], *bytes, name, rep)?,
-        }
+        });
         let seconds = started.elapsed().as_secs_f64();
         rep.partition_end(i + 1, regions.len(), name, *bytes, "raw", seconds);
         rep.prose(format!(
@@ -354,7 +435,7 @@ pub fn write_card_layout<W: Write + Seek>(
             regions.len()
         ));
     }
-    Ok(())
+    Ok(written)
 }
 
 #[cfg(test)]
@@ -377,7 +458,7 @@ mod tests {
     const REQUIRED: u64 = 64 * 1024 * 1024;
     const MAX: u64 = DEFAULT_MAX_SIZE_BYTES;
 
-    fn kind(r: std::result::Result<(), SafetyError>) -> Option<&'static str> {
+    fn kind(r: std::result::Result<(), CardError>) -> Option<&'static str> {
         r.err().map(|e| e.kind)
     }
 
@@ -468,33 +549,22 @@ mod tests {
         assert_eq!(required_bytes(1024), 40960 * 512 + 1024);
     }
 
-    /// Minimal blob with a valid boot header: `length` (offset 20) covers it all.
     fn fake_boot0(len: usize) -> Vec<u8> {
         let mut b = vec![0xA5u8; len];
         b[4..12].copy_from_slice(b"eGON.BT0");
-        b[20..24].copy_from_slice(&(len as u32).to_le_bytes());
-        b[sunxi_head::WORK_MODE_OFFSET..sunxi_head::WORK_MODE_OFFSET + 4]
-            .copy_from_slice(&sunxi_head::WORK_MODE_BOOT.to_le_bytes());
         b
     }
 
     #[test]
-    fn card_boot0_sets_work_mode_and_a_valid_checksum() {
-        let raw = fake_boot0(4096);
-        let patched = card_boot0(&raw).unwrap();
-        assert_eq!(
-            sunxi_head::read_work_mode(&patched).unwrap(),
-            sunxi_head::WORK_MODE_CARD_PRODUCT
-        );
-        let mut again = patched.clone();
-        let sum = sunxi_head::fix_checksum(&mut again).unwrap();
-        assert_eq!(sunxi_head::read_checksum(&patched).unwrap(), sum);
-        assert_eq!(raw.len(), patched.len());
+    fn work_mode_is_stored_where_the_vendor_tool_puts_it() {
+        // The offset PhoenixCard writes on a real card (checked against one).
+        assert_eq!(crate::sunxi_head::WORK_MODE_OFFSET, 224);
+        assert_eq!(crate::sunxi_head::WORK_MODE_CARD_PRODUCT, 0x11);
     }
 
     #[test]
     fn layout_lands_at_the_fixed_lbas() {
-        let boot0 = card_boot0(&fake_boot0(4096)).unwrap();
+        let boot0 = fake_boot0(4096);
         let mut bp = vec![0x5Au8; 3000]; // deliberately not sector-aligned
         bp[..8].copy_from_slice(b"sunxi-pk");
         let mut fw = vec![0x77u8; 100_000];
@@ -515,10 +585,6 @@ mod tests {
         assert_eq!(&disk[at(FIRMWARE_LBA)..at(FIRMWARE_LBA) + fw.len()], &fw[..]);
         assert_eq!(&disk[at(FIRMWARE_LBA)..at(FIRMWARE_LBA) + 8], b"IMAGEWTY");
         assert_eq!(&disk[at(BOOT0_LBA) + 4..at(BOOT0_LBA) + 12], b"eGON.BT0");
-        assert_eq!(
-            sunxi_head::read_work_mode(&disk[at(BOOT0_LBA)..]).unwrap(),
-            sunxi_head::WORK_MODE_CARD_PRODUCT
-        );
 
         // Every write is a whole number of sectors, tails zero-padded.
         assert_eq!(disk.len() as u64 % SECTOR_SIZE, 0);
@@ -530,7 +596,7 @@ mod tests {
 
     #[test]
     fn the_gaps_between_regions_are_left_alone() {
-        let boot0 = card_boot0(&fake_boot0(4096)).unwrap();
+        let boot0 = fake_boot0(4096);
         let bp = vec![1u8; 4096];
         let fw = vec![2u8; 4096];
         let mut out = Cursor::new(vec![0xEEu8; 41_000 * 512]);
@@ -546,5 +612,86 @@ mod tests {
         assert!(disk[at(BOOT_PACKAGE_BACKUP_LBA) + 4096..at(BOOT_PACKAGE_LBA)]
             .iter()
             .all(|&b| b == 0xEE));
+    }
+}
+
+/// End-to-end on a real firmware image, no card and no board: the SDK's own
+/// boot0 and boot_package must pass the checks the board applies, and a
+/// layout written to a plain file must read back clean. Needs a real image, so
+/// it only runs when asked: `AW_TEST_IMAGE=<path> cargo test real_image -- --ignored`.
+#[cfg(test)]
+mod real_image {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn the_sdks_own_boot_chain_passes_and_round_trips() {
+        let Some(path) = std::env::var_os("AW_TEST_IMAGE") else {
+            panic!("set AW_TEST_IMAGE to a firmware .img");
+        };
+        let image = std::path::PathBuf::from(path);
+        let img = crate::imagewty::ImageWty::open(&image).unwrap();
+        let shipped = img.read_item(img.find("boot0_sdcard.fex").unwrap()).unwrap();
+        // The package goes on the card exactly as the image has it.
+        let boot_package = img.read_item(img.find("boot_package.fex").unwrap()).unwrap();
+
+        verify::check_shipped_boot0(&shipped).expect("the SDK's boot0 should be internally consistent");
+        check_toc1(&boot_package).expect("the SDK's boot_package should pass the TOC1 checks");
+        let boot0 = card_boot0(&shipped).unwrap();
+        check_card_boot0(&boot0).expect("the card boot0 should pass its checks");
+        assert!(check_card_boot0(&shipped).is_err(), "a shipped boot0 is not a card boot0");
+
+        // If a card written by the vendor's tool is at hand, our boot0 must be
+        // exactly what that tool wrote: `AW_TEST_CARD_BOOT0=<dump of LBA 16..>`.
+        if let Some(dump) = std::env::var_os("AW_TEST_CARD_BOOT0") {
+            let theirs = std::fs::read(dump).unwrap();
+            assert_eq!(&theirs[..boot0.len()], &boot0[..], "differs from the vendor tool's boot0");
+            println!("boot0 is byte-identical to the vendor tool's");
+        }
+
+        let firmware_len = std::fs::metadata(&image).unwrap().len();
+        let tmp = std::env::temp_dir().join("aw_card_roundtrip.bin");
+        let mut card = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)
+            .unwrap();
+        let rep = Reporter::new(false);
+        let mut firmware = File::open(&image).unwrap();
+        let written =
+            write_card_layout(&mut card, &boot0, &boot_package, &mut firmware, firmware_len, &rep)
+                .unwrap();
+        card.sync_all().unwrap();
+        verify::verify_written(&mut card, &written, &rep).expect("the layout should read back clean");
+
+        // And the standalone path: digests of the image against the file.
+        let expected = expected_digests(&boot0, &boot_package, &image, firmware_len).unwrap();
+        let mut actual = Vec::new();
+        for (name, lba, len) in
+            verify::region_list(boot0.len() as u64, boot_package.len() as u64, firmware_len)
+        {
+            actual.push(verify::digest_card(&mut card, name, lba, len, &rep).unwrap());
+        }
+        verify::compare(&expected, &actual).unwrap();
+
+        // Damage one byte in the middle of the firmware: it must be found.
+        use std::io::{Seek, SeekFrom, Write};
+        let at = FIRMWARE_LBA * 512 + firmware_len / 2;
+        card.seek(SeekFrom::Start(at)).unwrap();
+        card.write_all(&[0xA5, 0x5A]).unwrap();
+        card.sync_all().unwrap();
+        let mut damaged = Vec::new();
+        for (name, lba, len) in
+            verify::region_list(boot0.len() as u64, boot_package.len() as u64, firmware_len)
+        {
+            damaged.push(verify::digest_card(&mut card, name, lba, len, &rep).unwrap());
+        }
+        let err = verify::compare(&expected, &damaged).unwrap_err();
+        println!("{err}");
+        assert!(err.to_string().contains("firmware"));
+        drop(card);
+        let _ = std::fs::remove_file(&tmp);
     }
 }

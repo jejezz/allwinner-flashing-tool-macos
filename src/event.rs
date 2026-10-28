@@ -281,7 +281,7 @@ impl Reporter {
                 "message": format!("{error:#}"),
                 "causes": causes,
             });
-            if let Some(safety) = error.downcast_ref::<crate::sdcard::SafetyError>() {
+            if let Some(safety) = error.downcast_ref::<crate::sdcard::CardError>() {
                 event["kind"] = json!(safety.kind);
             }
             self.emit(event);

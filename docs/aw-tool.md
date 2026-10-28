@@ -37,7 +37,8 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 | `--json` 이벤트 · `probe` · 종료 코드 | 오프라인 명령으로 검증 (`gui/test/aw_tool_integration_test.dart`가 실제 바이너리를 구동) |
 | `list-disks` (Windows) | 이 PC에서 확인 — 시스템 NVMe는 `system=true`, 외장 SSD는 이동식 아님으로 구분 |
 | `list-disks` (macOS) | **미검증** — 타입 체크만 통과, 실행은 Mac에서 필요 |
-| `flash-sdcard` | **실기 미검증** — 고정 LBA 배치·안전검사는 단위테스트(`cargo test`)로 확인. 실제 SD카드 기록과 보드의 카드 설치는 아직 시도하지 않았다. 예비 영역(24576~32800, TOC1~40960)을 건드리지 않아도 되는지, 카드에 파티션 테이블이 필요 없는지는 첫 실기에서 확인할 가정 |
+| `flash-sdcard` | 호스트 쪽은 검증 완료 — 고정 LBA 배치·안전검사·읽기 대조는 단위테스트와 **실제 SDK 이미지(1.7 GB)로 카드 없이** 확인했고, 우리가 만드는 boot0는 PhoenixCard가 실제 카드에 쓴 boot0와 **바이트 단위로 동일**하다(아래 "실물과 대조한 것"). **이 도구로 실제 SD카드에 쓰는 것과 보드의 카드 설치는 아직 해보지 않았다.** 예비 영역(24576~32800, TOC1~40960)을 건드리지 않아도 되는지, 카드에 파티션 테이블이 필요 없는지는 첫 실기에서 확인할 가정 |
+| `verify-sdcard` (Windows) | 실제 카드로 확인 — UAC 승인 후 워커가 캐시를 우회해 카드를 읽고 구조 검사·이미지 대조가 동작한다. 다른 빌드로 구운 카드를 이미지와 대조하면 어긋난 LBA를 짚어 낸다 |
 
 **GUI**
 
@@ -228,7 +229,34 @@ aw-tool flash-sdcard firmware.img '\\.\PhysicalDrive2'   # Windows
 sudo aw-tool flash-sdcard firmware.img /dev/disk4        # macOS
 ```
 
-기록 위치(512B 섹터): firmware.img 전체 → LBA 40960, boot_package(TOC1) → 32800과 백업 24576, boot0(work_mode=`0x11`로 패치) → 16. boot0를 **마지막**에 쓴다 — 도중에 끊기면 BootROM이 유효한 boot0를 못 찾아 카드가 "부팅되지 않는" 쪽으로 실패한다.
+기록 위치(512B 섹터): firmware.img 전체 → LBA 40960, boot_package(TOC1) → 32800과 백업 24576 **(이미지 그대로)**, boot0 → 16. boot0는 이미지의 `boot0_sdcard.fex`에서 두 가지만 바꾼다 — offset 224의 카드 work mode를 `0x11`로, 헤더 체크섬(offset 12)을 다시 계산. boot0를 **마지막**에 쓴다 — 도중에 끊기면 BootROM이 유효한 boot0를 못 찾아 카드가 "부팅되지 않는" 쪽으로 실패한다.
+
+### 카드를 보드 없이 검증하기
+
+쓰기가 끝나면(기본) 카드를 **OS 캐시를 우회해 다시 읽어** 쓴 내용과 64 KB 단위로 대조하고(`--no-verify`로 끈다), 보드의 BootROM·u-boot가 쓰는 것과 같은 헤더 검사를 한다. 어긋나면 첫 위치를 LBA와 바이트로 알려 준다 — 카드나 리더가 쓰기를 조용히 버리는 경우를 잡기 위한 것이다.
+
+```bash
+aw-tool verify-sdcard '\\.\PhysicalDrive2' --image firmware.img   # 이 이미지로 구운 카드가 맞는지
+aw-tool verify-sdcard '\\.\PhysicalDrive2'                        # 이미지 없이 부트 체인 구조만
+```
+
+| 검사 | 내용 |
+|---|---|
+| 내용 대조 | 네 영역(boot0, boot_package×2, firmware)을 읽어 이미지에서 기대되는 값과 비교 |
+| boot0 | `eGON.BT0` 헤더, 헤더 체크섬, 카드 work mode(`0x11`) |
+| boot_package | TOC1 매직·`valid_len` 체크섬·항목 범위, 안의 u-boot 헤더 체크섬 |
+| firmware | IMAGEWTY 헤더 |
+
+**이것으로 알 수 있는 것**: 카드가 방금 쓴 내용을 실제로 가지고 있는지, 그 내용이 보드가 거부하지 않을 형태인지. **알 수 없는 것**: 보드의 펌웨어가 그 카드로 실제로 설치를 끝내는지 — 그건 보드가 있어야 한다.
+
+### 실물과 대조한 것
+
+PhoenixCard로 구운 실제 카드를 읽기 전용으로 덤프해 SDK 이미지의 항목과 비교했다.
+
+- `boot_package`(LBA 32800·24576)는 이미지와 **0바이트 차이** — PhoenixCard는 수정 없이 복사한다.
+- boot0는 **8바이트**만 다르다: offset 224가 `0xff030b08` → `0x11`, 체크섬(offset 12).
+- 그 체크섬은 boot0 **앞 48바이트**(헤더)만 합산한 값이다. SDK가 만든 원본 boot0의 체크섬은 전체 61440바이트 합이라 서로 다르다. BootROM이 어느 쪽을 보는지는 소스(미공개 라이브러리)로 확정하지 못했고, 우리는 **현장에서 쓰이는 PhoenixCard의 출력과 같게** 만든다. 구현한 boot0는 그 카드의 boot0와 바이트 단위로 같다.
+- boot0 헤더의 길이 필드는 **offset 16**이고, u-boot 헤더는 offset 20이다. 두 헤더를 같은 오프셋으로 다루면 체크섬이 틀어진다.
 
 디스크를 잘못 고르면 호스트 PC의 데이터를 잃으므로 쓰기 전에 거부 규칙을 적용한다.
 
@@ -239,7 +267,7 @@ sudo aw-tool flash-sdcard firmware.img /dev/disk4        # macOS
 | 이동식 미디어로 보고되지 않음 | `--force` 없이는 거부 |
 | `--max-size-bytes`(기본 256 GiB) 초과 | `--force` 없이는 거부 |
 
-`<disk>`는 `list-disks`가 출력한 id 그대로여야 하고(임의 경로·파일은 받지 않는다), 쓰기 직전에 목록을 다시 읽어 같은 디스크인지 확인한다. 거부는 JSON 모드에서 `error` 이벤트의 `kind`(`is_system_disk` / `too_small` / `not_removable` / `too_large` / `size_mismatch`)로 구분된다.
+`<disk>`는 `list-disks`가 출력한 id 그대로여야 하고(임의 경로·파일은 받지 않는다), 쓰기 직전에 목록을 다시 읽어 같은 디스크인지 확인한다. 거부는 JSON 모드에서 `error` 이벤트의 `kind`(`is_system_disk` / `too_small` / `not_removable` / `too_large` / `size_mismatch` / `verify_failed` / `structure_invalid`)로 구분된다.
 
 raw 디스크 쓰기에는 관리자 권한이 필요하다.
 
@@ -278,7 +306,8 @@ raw 디스크 쓰기에는 관리자 권한이 필요하다.
 | `flash-mbr` / `flash-boot1` / `flash-boot0` | 개별 대상 기록 |
 | `flash-set-erase-flag` | erase 플래그 설정 |
 
-| `flash-sdcard` | SD카드에 카드 퓨징 이미지 기록 (아래 "SD카드로 굽기") |
+| `flash-sdcard` | SD카드에 카드 퓨징 이미지 기록, 쓴 뒤 카드를 다시 읽어 대조 (아래 "SD카드로 굽기") |
+| `verify-sdcard` | 카드를 쓰지 않고 읽어서 검증 — 이미지와 대조, 부트 체인 구조 검사 (아래 "카드를 보드 없이 검증하기") |
 
 `list-disks`는 쓰기 후보 디스크(크기·이동식 여부·시스템 디스크 여부)를 보고하는 읽기 전용 명령이다.
 
@@ -480,6 +509,7 @@ EFEX
 | `src/sparse.rs` | Android sparse 이미지 파서 |
 | `src/sys_partition.rs` | `sys_partition.fex` 파서 + 오프셋 계산 |
 | `src/sdcard/` | 카드 퓨징: 디스크 열거(Windows/macOS), 안전검사, 고정 LBA 기록 |
+| `src/sdcard/verify.rs` | 카드 읽기 대조(64 KB 단위 CRC)와 부트 체인 헤더 검사 |
 | `src/sdcard/relay.rs` | 일반 권한 프로세스 → 관리자 쓰기 프로세스로 이미지를 흘려보내는 소켓 프로토콜 |
 | `src/event.rs` | 진행 리포터 (산문 / NDJSON 양쪽) |
 | `gui/lib/aw_tool.dart` | CLI 실행 + JSON 이벤트 파싱 |

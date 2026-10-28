@@ -26,6 +26,8 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 
+const FILE_FLAG_NO_BUFFERING: u32 = 0x2000_0000;
+
 /// How long to wait for the elevated writer to appear: the user has to find and
 /// answer the UAC prompt first.
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(120);
@@ -248,23 +250,14 @@ fn spawn_elevated_worker(port: u16, token: &str) -> Result<()> {
     Ok(())
 }
 
-/// Hand the write to an elevated copy of this program and stream the image to
-/// it. The image is read here, in the user's own session.
-pub fn flash_via_worker(
-    disk: &DiskInfo,
-    boot0: &[u8],
-    boot_package: &[u8],
-    image: &Path,
-    firmware_len: u64,
-    params: &FlashParams,
-    rep: &Reporter,
-) -> Result<()> {
+/// Start the elevated worker and wait for it to connect back. Returns the
+/// socket and the token the worker must present on it.
+fn connect_worker(rep: &Reporter) -> Result<(std::net::TcpStream, String)> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).context("opening a local socket")?;
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
     let token = random_token()?;
 
-    let mut firmware = File::open(image).with_context(|| format!("opening {:?}", image))?;
     rep.step(
         "elevating",
         "starting the elevated card writer — approve the permission prompt",
@@ -285,16 +278,86 @@ pub fn flash_via_worker(
         }
     };
     stream.set_nonblocking(false)?;
+    Ok((stream, token))
+}
 
+/// Hand the write to an elevated copy of this program and stream the image to
+/// it. The image is read here, in the user's own session.
+pub fn flash_via_worker(
+    disk: &DiskInfo,
+    boot0: &[u8],
+    boot_package: &[u8],
+    image: &Path,
+    firmware_len: u64,
+    params: &FlashParams,
+    rep: &Reporter,
+) -> Result<()> {
+    let mut firmware = File::open(image).with_context(|| format!("opening {:?}", image))?;
+    let (stream, token) = connect_worker(rep)?;
     let header = Header {
+        op: relay::Op::Write,
         disk: disk.id.clone(),
         force: params.force,
         max_size_bytes: params.max_size_bytes,
         boot0_len: boot0.len() as u64,
         boot_package_len: boot_package.len() as u64,
         firmware_len,
+        verify: params.verify,
     };
     relay::parent_session(stream, &token, &header, boot0, boot_package, &mut firmware, rep)
+}
+
+/// Have an elevated worker read the card and judge it. While it reads, this
+/// side works out what the image says the card should hold.
+pub fn verify_via_worker(
+    disk: &DiskInfo,
+    expected: Option<(&[u8], &[u8], &Path, u64)>,
+    lens: (u64, u64, u64),
+    rep: &Reporter,
+) -> Result<()> {
+    std::thread::scope(|scope| -> Result<()> {
+        let digests = expected.map(|(boot0, boot_package, image, firmware_len)| {
+            scope.spawn(move || super::expected_digests(boot0, boot_package, image, firmware_len))
+        });
+        let (stream, token) = connect_worker(rep)?;
+        let header = Header {
+            op: relay::Op::Verify,
+            disk: disk.id.clone(),
+            force: false,
+            max_size_bytes: 0,
+            boot0_len: lens.0,
+            boot_package_len: lens.1,
+            firmware_len: lens.2,
+            verify: true,
+        };
+        let report = relay::parent_verify(stream, &token, &header, rep)?;
+        let expected = match digests {
+            Some(handle) => Some(
+                handle
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("hashing the image panicked"))??,
+            ),
+            None => None,
+        };
+        relay::judge(expected.as_deref(), report.digests.as_deref(), report.structure, rep)
+    })
+}
+
+/// The disk for reading back, with the OS cache bypassed so what comes back is
+/// what the card holds. Unbuffered reads need whole, sector-aligned requests;
+/// the verifier makes only those.
+pub fn open_for_read(disk: &DiskInfo) -> Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .share_mode(SHARE_READ_WRITE)
+        .custom_flags(FILE_FLAG_NO_BUFFERING)
+        .open(&disk.id)
+        .with_context(|| {
+            format!(
+                "opening {} for reading (raw disk access needs an administrator prompt)",
+                disk.id
+            )
+        })
 }
 
 fn disk_number(id: &str) -> Result<u32> {

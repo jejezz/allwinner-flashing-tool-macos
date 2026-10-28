@@ -197,6 +197,29 @@ enum Command {
         /// 0 = no limit).
         #[arg(long, default_value_t = sdcard::DEFAULT_MAX_SIZE_BYTES)]
         max_size_bytes: u64,
+        /// Skip reading the card back after writing. The read-back is what
+        /// catches a card or reader that silently drops writes, so leave it on
+        /// unless time matters more.
+        #[arg(long)]
+        no_verify: bool,
+    },
+
+    /// Check an SD card without writing to it: read it back (bypassing the OS
+    /// cache) and judge the boot chain the way the board's BootROM and u-boot
+    /// would — boot0 and boot_package headers and checksums, an IMAGEWTY
+    /// firmware. With `--image`, also require the card to hold exactly that
+    /// image. Needs no board. Raw disk access needs administrator rights
+    /// (Windows asks) or sudo (macOS).
+    VerifySdcard {
+        /// Disk exactly as printed by `list-disks`.
+        disk: String,
+        /// The image the card should have been written from.
+        #[arg(long)]
+        image: Option<PathBuf>,
+        #[arg(long, default_value = "boot0_sdcard.fex")]
+        boot0_item: String,
+        #[arg(long, default_value = "boot_package.fex")]
+        boot_package_item: String,
     },
 
     /// Internal: the elevated half of `flash-sdcard` on Windows. Started by
@@ -737,21 +760,32 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             boot_package_item,
             force,
             max_size_bytes,
+            no_verify,
         } => {
             let img = imagewty::ImageWty::open(&image)?;
             let boot0_raw = img.read_item(
                 img.find(&boot0_item)
                     .with_context(|| format!("{boot0_item} not found in image"))?,
             )?;
-            let boot_package = img.read_item(
+            let boot_package_raw = img.read_item(
                 img.find(&boot_package_item)
                     .with_context(|| format!("{boot_package_item} not found in image"))?,
             )?;
+            // What PhoenixCard writes: boot0 with the card work mode set,
+            // boot_package untouched.
             let boot0 = sdcard::card_boot0(&boot0_raw)?;
+            let boot_package = boot_package_raw;
             let firmware_len = std::fs::metadata(&image)
                 .with_context(|| format!("reading {:?}", image))?
                 .len();
             sdcard::validate_layout(boot0.len() as u64, boot_package.len() as u64)?;
+            // The board's BootROM and u-boot refuse a boot0 or boot_package that
+            // fails these; better to learn it here than from a dead card.
+            sdcard::check_card_boot0(&boot0)
+                .context("the card's boot0 would not pass the BootROM checks")?;
+            sdcard::check_toc1(&boot_package)
+                .context("this image's boot_package would not pass the u-boot checks")?;
+            rep.step("image_ok", "boot0 and boot_package pass the boot-chain header checks");
 
             let disks = sdcard::enumerate_disks()?;
             let target = disks
@@ -783,13 +817,55 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                 &sdcard::FlashParams {
                     force,
                     max_size_bytes,
+                    verify: !no_verify,
                 },
                 rep,
             )?;
             rep.step(
                 "card_written",
-                "card written — insert it into the board and power on (no USB needed)",
+                if no_verify {
+                    "card written, not verified — insert it into the board and power on (no USB needed)"
+                } else {
+                    "card written and verified — insert it into the board and power on (no USB needed)"
+                },
             );
+        }
+
+        Command::VerifySdcard {
+            disk,
+            image,
+            boot0_item,
+            boot_package_item,
+        } => {
+            let disks = sdcard::enumerate_disks()?;
+            let target = disks
+                .iter()
+                .find(|d| sdcard::same_id(&d.id, &disk))
+                .with_context(|| format!("disk '{disk}' not found; run `aw-tool list-disks`"))?;
+            match image {
+                Some(image) => {
+                    let img = imagewty::ImageWty::open(&image)?;
+                    let boot0_raw = img.read_item(
+                        img.find(&boot0_item)
+                            .with_context(|| format!("{boot0_item} not found in image"))?,
+                    )?;
+                    let boot_package = img.read_item(
+                        img.find(&boot_package_item)
+                            .with_context(|| format!("{boot_package_item} not found in image"))?,
+                    )?;
+                    let boot0 = sdcard::card_boot0(&boot0_raw)?;
+                    let firmware_len = std::fs::metadata(&image)
+                        .with_context(|| format!("reading {:?}", image))?
+                        .len();
+                    sdcard::verify_card(
+                        target,
+                        Some((&boot0, &boot_package, &image, firmware_len)),
+                        rep,
+                    )?;
+                }
+                None => sdcard::verify_card(target, None, rep)?,
+            }
+            rep.step("card_verified", "the card checks out");
         }
 
         Command::FlashAll {

@@ -138,7 +138,16 @@
   "sdCardConfirmStopTitle": "굽기를 중단할까요?",
   "sdCardConfirmStopWarning": "지금 중단하면 카드는 쓰다 만 상태로 남아 부팅되지 않습니다. 카드를 다시 구우세요.",
   "sdCardSucceededTitle": "SD카드 굽기 완료",
-  "sdCardSucceededBody": "카드를 보드에 꽂고 전원을 켜세요. USB 연결은 필요 없습니다.",
+  "sdCardSucceededBody": "카드에 쓴 내용을 다시 읽어 확인했습니다. 카드를 보드에 꽂고 전원을 켜세요. USB 연결은 필요 없습니다.",
+  "sdCardVerifying": "검증 중… 카드를 다시 읽어 대조합니다.",
+  "sdCardVerifyingRegion": "검증 중: {region}",
+  "@sdCardVerifyingRegion": {
+    "placeholders": {
+      "region": {
+        "type": "String"
+      }
+    }
+  },
   "sdCardFailedTitle": "SD카드 굽기 실패",
   "sdCardAdminHint": "디스크에 직접 쓰려면 관리자 권한이 필요합니다. Windows는 권한 요청 창을 승인하고, macOS는 앱을 sudo로 실행하세요.",
   "sdCardClose": "닫기",

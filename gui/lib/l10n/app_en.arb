@@ -1,6 +1,6 @@
 {
   "@@locale": "en",
-  "appSubtitle": "T507 / T527 · FEL/EFEX",
+  "appSubtitle": "AllWinner CPUs · FEL/EFEX",
   "deviceFel": "FEL mode",
   "deviceFelWithSoc": "FEL mode (soc 0x{soc})",
   "deviceEfex": "EFEX mode",
@@ -86,7 +86,7 @@
   "languageSystem": "System / 시스템 설정 따르기",
   "languageSystemShort": "System",
   "aboutTagline": "An open-source PhoenixSuit alternative for Allwinner boards",
-  "aboutDescription": "Flashes Allwinner T507 / T527 boards over the FEL/EFEX USB protocol.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written.",
+  "aboutDescription": "Flashes AllWinner CPU boards over the FEL/EFEX USB protocol.\n\nA board is taken from FEL into EFEX using primers extracted from the image itself, then the partition table, every partition, BOOT1 and BOOT0 are written.",
   "updateCheckMenuItem": "Check for Updates",
   "updateChecking": "Checking for updates…",
   "updateAvailableTitle": "A new version is available",

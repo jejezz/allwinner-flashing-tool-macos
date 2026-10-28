@@ -61,7 +61,7 @@ void main() {
   testWidgets('the About dialog builds and shows the purpose text',
       (tester) async {
     PackageInfo.setMockInitialValues(
-      appName: 'Allwinner Flasher',
+      appName: 'Hawk Flasher',
       packageName: 'aw_flasher',
       version: '9.8.7',
       buildNumber: '65',

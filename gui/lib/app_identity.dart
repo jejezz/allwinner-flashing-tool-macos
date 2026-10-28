@@ -6,7 +6,7 @@
 
 abstract final class AppIdentity {
   /// 표시 이름. 번역하지 않는다 (conventions/localization.md §2).
-  static const displayName = 'Allwinner Flasher';
+  static const displayName = 'Hawk Flasher';
 
   static const repositoryUrl = 'https://github.com/jejezz/allwinner-flashing-tool-macos';
 

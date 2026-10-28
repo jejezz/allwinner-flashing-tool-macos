@@ -1,6 +1,6 @@
 {
   "@@locale": "ko",
-  "appSubtitle": "T507 / T527 · FEL/EFEX",
+  "appSubtitle": "AllWinner CPUs · FEL/EFEX",
   "deviceFel": "FEL 모드",
   "deviceFelWithSoc": "FEL 모드 (soc 0x{soc})",
   "@deviceFelWithSoc": {
@@ -182,7 +182,7 @@
   "languageSystem": "시스템 설정 따르기 / System",
   "languageSystemShort": "시스템",
   "aboutTagline": "PhoenixSuit 대신 쓰는 오픈소스 Allwinner 플래셔",
-  "aboutDescription": "Allwinner T507 / T527 보드를 FEL/EFEX USB 프로토콜로 플래싱합니다.\n\n이미지에서 직접 꺼낸 프라이머로 보드를 FEL에서 EFEX로 넘긴 뒤, 파티션 테이블과 각 파티션, BOOT1, BOOT0을 기록합니다.",
+  "aboutDescription": "AllWinner CPUs 보드를 FEL/EFEX USB 프로토콜로 플래싱합니다.\n\n이미지에서 직접 꺼낸 프라이머로 보드를 FEL에서 EFEX로 넘긴 뒤, 파티션 테이블과 각 파티션, BOOT1, BOOT0을 기록합니다.",
   "updateCheckMenuItem": "업데이트 확인",
   "updateChecking": "업데이트를 확인하는 중…",
   "updateAvailableTitle": "새 버전이 있습니다",

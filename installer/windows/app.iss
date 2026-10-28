@@ -17,10 +17,10 @@
 ; application (breaking upgrade/uninstall). conventions/identity.md §5.
 
 #ifndef MyAppName
-  #define MyAppName "Allwinner Flasher"
+  #define MyAppName "Hawk Flasher"
 #endif
 #ifndef MyFileName
-  #define MyFileName "AllwinnerFlasher"
+  #define MyFileName "HawkFlasher"
 #endif
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"

@@ -4,8 +4,9 @@
 //! commands live) takes a two-stage upload, both staged straight out of the
 //! IMAGEWTY image:
 //!
-//!   1. `fes1.fex`   — patched to work_mode=USB_PRODUCT, uploaded to
-//!                     `FES1_ADDR` and executed. Initialises DRAM (~6 s).
+//!   1. `fes1.fex`   — patched to work_mode=USB_PRODUCT, uploaded to a
+//!                     SoC-specific fes1 address and executed. Initialises
+//!                     DRAM (~6 s).
 //!   2. `u-boot.fex` — same patch, uploaded to `UBOOT_ADDR` and executed.
 //!                     The chip re-enumerates and comes up in EFEX.
 //!
@@ -20,6 +21,18 @@
 //! `fes/fes1.lds`: ". = 0x4c000"), and `u-boot.lds` / `.config`
 //! (`CONFIG_SYS_TEXT_BASE`) both give 0x4A000000. Passing fes1 to the address
 //! `sunxi-fel spl` assumes (0x44000, which is boot0's) hangs the board.
+//!
+//! H616/T507 (soc_id 0x1823, same die family) uses a different fes1 address:
+//! `spl-pub/board/{h616,t507}/common.mk` gives `CFG_FES1_RUN_ADDR = 0x28000`.
+//! Using the sun55iw3 address (0x4C000) on this SoC writes fes1 into
+//! unmapped SRAM, which the BROM never acknowledges — the symptom is a
+//! `usb_bulk_send: Operation timed out` on the fes1 upload. u-boot's load
+//! address (`CONFIG_SYS_TEXT_BASE`) is 0x4A000000 on both families, so it
+//! does not need a per-SoC branch.
+//!
+//! `fel_to_efex` reads `soc_id` off the device itself (via `FelDevice::
+//! get_version`) and picks the right fes1 address automatically; pass
+//! `Some(addr)` to override for an SoC not in `default_fes1_addr`.
 
 use anyhow::{bail, Context, Result};
 use std::time::{Duration, Instant};
@@ -31,9 +44,28 @@ use crate::imagewty::ImageWty;
 use crate::sunxi_head;
 
 /// fes1 load/run address for sun55iw3 (T527/A523).
-pub const FES1_ADDR: u32 = 0x0004_C000;
-/// u-boot load/run address for sun55iw3 (T527/A523).
+pub const FES1_ADDR_SUN55IW3: u32 = 0x0004_C000;
+/// fes1 load/run address for sun50iw9 (T507/H616).
+pub const FES1_ADDR_SUN50IW9: u32 = 0x0002_8000;
+/// u-boot load/run address — shared by sun55iw3 and sun50iw9.
 pub const UBOOT_ADDR: u32 = 0x4A00_0000;
+
+/// `soc_id` as reported by `FelDevice::get_version` (BROM version query).
+const SOC_ID_A523: u32 = 0x1890;
+const SOC_ID_H616: u32 = 0x1823;
+
+/// Pick the fes1 load/run address for a `soc_id` read off the device.
+fn default_fes1_addr(soc_id: u32) -> Result<u32> {
+    match soc_id {
+        SOC_ID_A523 => Ok(FES1_ADDR_SUN55IW3),
+        SOC_ID_H616 => Ok(FES1_ADDR_SUN50IW9),
+        other => bail!(
+            "unknown soc_id 0x{other:04x} — fes1 load address not known for this SoC; \
+             pass --fes1-addr/--uboot-addr explicitly (see spl-pub/board/*/common.mk \
+             CFG_FES1_RUN_ADDR in the vendor SDK)"
+        ),
+    }
+}
 
 /// Is a device already sitting in EFEX?
 ///
@@ -50,10 +82,13 @@ pub fn in_efex_mode() -> bool {
 
 /// Take a board from FEL to EFEX, staging both primers out of `image`.
 /// Returns without doing anything if the device is already in EFEX.
+///
+/// `fes1_addr`/`uboot_addr` of `None` auto-detect from the device's
+/// `soc_id` (see `default_fes1_addr`); pass `Some(addr)` to override.
 pub fn fel_to_efex(
     image: &ImageWty,
-    fes1_addr: u32,
-    uboot_addr: u32,
+    fes1_addr: Option<u32>,
+    uboot_addr: Option<u32>,
     rep: &Reporter,
 ) -> Result<()> {
     if in_efex_mode() {
@@ -70,6 +105,12 @@ pub fn fel_to_efex(
         "fel_found",
         format!("bootstrap: FEL device found (soc_id=0x{:04x})", version.soc_id),
     );
+
+    let fes1_addr = match fes1_addr {
+        Some(a) => a,
+        None => default_fes1_addr(version.soc_id)?,
+    };
+    let uboot_addr = uboot_addr.unwrap_or(UBOOT_ADDR);
 
     let fes1 = primer(image, "fes1.fex")?;
     fel.write_memory(fes1_addr, &fes1)

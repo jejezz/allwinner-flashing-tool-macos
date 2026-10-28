@@ -10,6 +10,12 @@ anyhow = "1"
 rusb = "0.9"
 serde_json = "1"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_IO"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1"
+
 [features]
 # Build libusb from source and link it statically instead of picking up the
 # Homebrew dylib. Off by default so ordinary `cargo build` stays fast; turn it

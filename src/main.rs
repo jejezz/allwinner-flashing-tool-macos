@@ -3,6 +3,7 @@ mod efex;
 mod event;
 mod fel;
 mod imagewty;
+mod sdcard;
 mod sparse;
 mod sunxi_head;
 mod sys_partition;
@@ -166,6 +167,36 @@ enum Command {
         /// already be in EFEX.
         #[arg(long)]
         no_bootstrap: bool,
+    },
+
+    /// List disks that could be a card-fusing target (safe, read-only). Each
+    /// reports its size, whether it is removable media, and whether it is the
+    /// disk the running OS lives on.
+    ListDisks,
+
+    /// DESTRUCTIVE: card fusing. Write boot0 (work_mode patched to
+    /// CARD_PRODUCT), boot_package (twice) and the whole firmware image to an
+    /// SD card at fixed sectors (16 / 32800 / 24576 / 40960); the board then
+    /// installs itself from the card at power-on. Everything on the card is
+    /// lost. Raw disk access needs administrator rights (Windows) or sudo
+    /// (macOS). The system disk is always refused.
+    FlashSdcard {
+        image: PathBuf,
+        /// Target disk exactly as printed by `list-disks`
+        /// (Windows `\\.\PhysicalDriveN`, macOS `/dev/diskN`).
+        disk: String,
+        #[arg(long, default_value = "boot0_sdcard.fex")]
+        boot0_item: String,
+        #[arg(long, default_value = "boot_package.fex")]
+        boot_package_item: String,
+        /// Allow a disk that is not reported as removable media or exceeds
+        /// --max-size-bytes. Never lifts the system-disk or too-small refusals.
+        #[arg(long)]
+        force: bool,
+        /// Refuse disks larger than this many bytes (default 256 GiB;
+        /// 0 = no limit).
+        #[arg(long, default_value_t = sdcard::DEFAULT_MAX_SIZE_BYTES)]
+        max_size_bytes: u64,
     },
 }
 
@@ -660,6 +691,91 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             dev.flash_set_on()?;
             dev.set_erase_flag(flag)?;
             rep.step("erase_flag", format!("erase flag set to {flag}"));
+        }
+
+        Command::ListDisks => {
+            let disks = sdcard::enumerate_disks()?;
+            if rep.json_mode() {
+                let list: Vec<_> = disks.iter().map(|d| d.to_json()).collect();
+                rep.data("disks", serde_json::json!({ "disks": list }));
+            } else if disks.is_empty() {
+                println!("no disks found");
+            } else {
+                for d in &disks {
+                    println!(
+                        "{}  {:>8.1} GB  removable={}  system={}  {}",
+                        d.id,
+                        d.size_bytes as f64 / 1e9,
+                        d.removable,
+                        d.is_system_disk,
+                        d.display_name
+                    );
+                }
+            }
+        }
+
+        Command::FlashSdcard {
+            image,
+            disk,
+            boot0_item,
+            boot_package_item,
+            force,
+            max_size_bytes,
+        } => {
+            let img = imagewty::ImageWty::open(&image)?;
+            let boot0_raw = img.read_item(
+                img.find(&boot0_item)
+                    .with_context(|| format!("{boot0_item} not found in image"))?,
+            )?;
+            let boot_package = img.read_item(
+                img.find(&boot_package_item)
+                    .with_context(|| format!("{boot_package_item} not found in image"))?,
+            )?;
+            let boot0 = sdcard::card_boot0(&boot0_raw)?;
+            let firmware_len = std::fs::metadata(&image)
+                .with_context(|| format!("reading {:?}", image))?
+                .len();
+            sdcard::validate_layout(boot0.len() as u64, boot_package.len() as u64)?;
+
+            let disks = sdcard::enumerate_disks()?;
+            let target = disks
+                .iter()
+                .find(|d| sdcard::same_id(&d.id, &disk))
+                .with_context(|| format!("disk '{disk}' not found; run `aw-tool list-disks`"))?;
+            sdcard::check_disk_safety(
+                target,
+                sdcard::required_bytes(firmware_len),
+                max_size_bytes,
+                force,
+            )?;
+            rep.step(
+                "safety_check_passed",
+                format!(
+                    "{} ({}, {} GB) passed the safety checks",
+                    target.id,
+                    target.display_name,
+                    target.size_bytes / 1_000_000_000
+                ),
+            );
+
+            let mut open = sdcard::open_for_write(target)?;
+            let mut firmware =
+                std::fs::File::open(&image).with_context(|| format!("opening {:?}", image))?;
+            sdcard::write_card_layout(
+                &mut open.file,
+                &boot0,
+                &boot_package,
+                &mut firmware,
+                firmware_len,
+                rep,
+            )?;
+            open.file
+                .sync_all()
+                .context("flushing the card after writing")?;
+            rep.step(
+                "card_written",
+                "card written — insert it into the board and power on (no USB needed)",
+            );
         }
 
         Command::FlashAll {

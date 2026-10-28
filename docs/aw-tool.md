@@ -35,6 +35,9 @@ aw-tool flash-all firmware.img sys_partition.fex --reboot
 | T507 | **미검증** — 아래 "T507로 옮길 때" 참조 |
 | 저장 매체 | eMMC/SD(`storage type = 2`)에서 검증. NAND 미검증 |
 | `--json` 이벤트 · `probe` · 종료 코드 | 오프라인 명령으로 검증 (`gui/test/aw_tool_integration_test.dart`가 실제 바이너리를 구동) |
+| `list-disks` (Windows) | 이 PC에서 확인 — 시스템 NVMe는 `system=true`, 외장 SSD는 이동식 아님으로 구분 |
+| `list-disks` (macOS) | **미검증** — 타입 체크만 통과, 실행은 Mac에서 필요 |
+| `flash-sdcard` | **실기 미검증** — 고정 LBA 배치·안전검사는 단위테스트(`cargo test`)로 확인. 실제 SD카드 기록과 보드의 카드 설치는 아직 시도하지 않았다. 예비 영역(24576~32800, TOC1~40960)을 건드리지 않아도 되는지, 카드에 파티션 테이블이 필요 없는지는 첫 실기에서 확인할 가정 |
 
 **GUI**
 
@@ -215,6 +218,31 @@ plan: MBR(65536 B) + 10 partitions (1017 MB total) + BOOT1(1376256 B) + BOOT0(69
 
 MBR / BOOT0 / BOOT1은 선택과 무관하게 항상 기록된다. 사용자 데이터가 아니라 펌웨어에 속하는 영역이다.
 
+### SD카드로 굽기 (카드 퓨징)
+
+USB 없이, **SD카드에 직접** 기록해 두면 보드가 전원 인가 시 스스로 내장 eMMC에 설치한다. 카드에 올라가는 파일은 FEL로 쓰는 `firmware.img`와 같다. 근거와 레이아웃은 [`docs/sdcard-fusing-조사.md`](sdcard-fusing-조사.md).
+
+```bash
+aw-tool list-disks                                  # 후보 디스크 (읽기 전용)
+aw-tool flash-sdcard firmware.img '\\.\PhysicalDrive2'   # Windows
+sudo aw-tool flash-sdcard firmware.img /dev/disk4        # macOS
+```
+
+기록 위치(512B 섹터): firmware.img 전체 → LBA 40960, boot_package(TOC1) → 32800과 백업 24576, boot0(work_mode=`0x11`로 패치) → 16. boot0를 **마지막**에 쓴다 — 도중에 끊기면 BootROM이 유효한 boot0를 못 찾아 카드가 "부팅되지 않는" 쪽으로 실패한다.
+
+디스크를 잘못 고르면 호스트 PC의 데이터를 잃으므로 쓰기 전에 거부 규칙을 적용한다.
+
+| 조건 | 동작 |
+|---|---|
+| 시스템 디스크 (OS가 올라간 디스크) | **항상 거부** — `--force`로도 못 뚫는다 |
+| 카드 레이아웃을 담기에 너무 작음 | 항상 거부 |
+| 이동식 미디어로 보고되지 않음 | `--force` 없이는 거부 |
+| `--max-size-bytes`(기본 256 GiB) 초과 | `--force` 없이는 거부 |
+
+`<disk>`는 `list-disks`가 출력한 id 그대로여야 하고(임의 경로·파일은 받지 않는다), 쓰기 직전에 목록을 다시 읽어 같은 디스크인지 확인한다. 거부는 JSON 모드에서 `error` 이벤트의 `kind`(`is_system_disk` / `too_small` / `not_removable` / `too_large` / `size_mismatch`)로 구분된다.
+
+raw 디스크 쓰기에는 관리자 권한(Windows) 또는 `sudo`(macOS)가 필요하다. GUI도 같은 이유로 그 권한으로 실행해야 한다.
+
 ## 명령 목록
 
 **이미지 다루기 (오프라인)**
@@ -246,6 +274,10 @@ MBR / BOOT0 / BOOT1은 선택과 무관하게 항상 기록된다. 사용자 데
 | `flash-partition` | 파티션 하나만 |
 | `flash-mbr` / `flash-boot1` / `flash-boot0` | 개별 대상 기록 |
 | `flash-set-erase-flag` | erase 플래그 설정 |
+
+| `flash-sdcard` | SD카드에 카드 퓨징 이미지 기록 (아래 "SD카드로 굽기") |
+
+`list-disks`는 쓰기 후보 디스크(크기·이동식 여부·시스템 디스크 여부)를 보고하는 읽기 전용 명령이다.
 
 > `flash-*` 명령은 장치 내용을 지운다. 되돌릴 수 없다.
 
@@ -444,6 +476,7 @@ EFEX
 | `src/bootstrap.rs` | FEL→EFEX 자동 진입 |
 | `src/sparse.rs` | Android sparse 이미지 파서 |
 | `src/sys_partition.rs` | `sys_partition.fex` 파서 + 오프셋 계산 |
+| `src/sdcard/` | 카드 퓨징: 디스크 열거(Windows/macOS), 안전검사, 고정 LBA 기록 |
 | `src/event.rs` | 진행 리포터 (산문 / NDJSON 양쪽) |
 | `gui/lib/aw_tool.dart` | CLI 실행 + JSON 이벤트 파싱 |
 | `gui/lib/flasher_model.dart` | 장치 폴링, 이미지 로딩, 플래싱 상태 |

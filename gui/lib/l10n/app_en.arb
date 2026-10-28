@@ -57,6 +57,57 @@
   "confirmFlash": "Flash",
   "confirmStopTitle": "Stop flashing?",
   "confirmStopWarning": "Stopping now leaves the board mid-write — it won't boot normally until you flash it again.",
+  "burnToSdCard": "Burn to SD card",
+  "sdCardCardHint": "Writes straight to a card — no board connection needed",
+  "sdCardOpen": "Burn…",
+  "sdCardDialogTitle": "Burn to SD card",
+  "sdCardSelectHint": "Pick the SD card to write the image to. Everything on the selected disk will be erased.",
+  "sdCardNoDisks": "No disks found. Insert the SD card into a reader and refresh.",
+  "sdCardRefresh": "Refresh",
+  "sdCardBadgeRemovable": "Removable",
+  "sdCardBadgeSystem": "System disk",
+  "sdCardBadgeNotRemovable": "Not removable",
+  "sdCardNotRemovableAck": "This disk is not reported as removable. I have checked that it is the SD card and not an internal or external hard drive.",
+  "sdCardNext": "Next",
+  "sdCardBack": "Back",
+  "sdCardConfirmTitle": "Write to this SD card?",
+  "sdCardConfirmBody": "Everything on {name} ({sizeGb} GB) will be erased and cannot be recovered. Check once more that this is the right disk.",
+  "@sdCardConfirmBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "sizeGb": {
+        "type": "String"
+      }
+    }
+  },
+  "sdCardTypeToVerify": "To continue, type the disk name {id}.",
+  "@sdCardTypeToVerify": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "sdCardWrite": "Write",
+  "sdCardWriting": "Writing to the SD card…",
+  "sdCardWritingRegion": "Writing: {region}",
+  "@sdCardWritingRegion": {
+    "placeholders": {
+      "region": {
+        "type": "String"
+      }
+    }
+  },
+  "sdCardKeepConnected": "Do not remove the card until this finishes.",
+  "sdCardConfirmStopTitle": "Stop writing?",
+  "sdCardConfirmStopWarning": "Stopping now leaves the card half-written and it will not boot. Write the card again afterwards.",
+  "sdCardSucceededTitle": "SD card written",
+  "sdCardSucceededBody": "Put the card in the board and power it on. No USB connection is needed.",
+  "sdCardFailedTitle": "SD card write failed",
+  "sdCardAdminHint": "Writing straight to a disk may need the app to run as administrator (Windows) or with sudo (macOS).",
+  "sdCardClose": "Close",
   "toolMissingTitle": "Helper not found",
   "toolMissingBody": "Could not find the aw-tool executable.\nIf you are working in the checkout, run `cargo build --release` first.",
   "troubleshootTooltip": "Troubleshoot",

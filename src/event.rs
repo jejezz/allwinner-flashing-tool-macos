@@ -136,6 +136,23 @@ impl Reporter {
         }
     }
 
+    /// What a `flash-sdcard` run is about to write, announced before the card
+    /// is touched. `regions` are (name, bytes) in write order.
+    pub fn card_plan(&self, regions: &[(&str, u64)]) {
+        if !self.json {
+            return;
+        }
+        let total: u64 = regions.iter().map(|(_, bytes)| bytes).sum();
+        self.emit(json!({
+            "event": "card_plan",
+            "regions": regions
+                .iter()
+                .map(|(name, bytes)| json!({ "name": name, "bytes": bytes }))
+                .collect::<Vec<_>>(),
+            "total_bytes": total,
+        }));
+    }
+
     pub fn partition_begin(&self, index: usize, total: usize, name: &str, bytes: u64) {
         self.last_progress.set(None);
         if self.json {
@@ -239,11 +256,15 @@ impl Reporter {
     pub fn fail(&self, error: &anyhow::Error) {
         if self.json {
             let causes: Vec<String> = error.chain().map(|c| c.to_string()).collect();
-            self.emit(json!({
+            let mut event = json!({
                 "event": "error",
                 "message": format!("{error:#}"),
                 "causes": causes,
-            }));
+            });
+            if let Some(safety) = error.downcast_ref::<crate::sdcard::SafetyError>() {
+                event["kind"] = json!(safety.kind);
+            }
+            self.emit(event);
         } else {
             self.clear_line();
             eprintln!("Error: {error:#}");

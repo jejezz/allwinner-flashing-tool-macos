@@ -15,6 +15,7 @@ import 'app_identity.dart';
 import 'aw_tool.dart';
 import 'flasher_model.dart';
 import 'l10n/app_localizations.dart';
+import 'sdcard_dialog.dart';
 import 'settings/app_settings.dart';
 import 'settings/legacy_language_file.dart';
 import 'settings/settings_menus.dart';
@@ -287,6 +288,7 @@ class _HomePageState extends State<HomePage> {
                               child: _ControlColumn(
                                 model: model,
                                 onPick: _pickImage,
+                                onSdCard: () => showSdCardDialog(context, model),
                               ),
                             ),
                             const SizedBox(width: 16),
@@ -414,10 +416,15 @@ class _Header extends StatelessWidget {
 }
 
 class _ControlColumn extends StatelessWidget {
-  const _ControlColumn({required this.model, required this.onPick});
+  const _ControlColumn({
+    required this.model,
+    required this.onPick,
+    required this.onSdCard,
+  });
 
   final FlasherModel model;
   final VoidCallback onPick;
+  final VoidCallback onSdCard;
 
   @override
   Widget build(BuildContext context) {
@@ -439,6 +446,8 @@ class _ControlColumn extends StatelessWidget {
             _DeviceCard(model: model),
             const SizedBox(height: 14),
             _ImageCard(model: model, onPick: onPick),
+            const SizedBox(height: 14),
+            _SdCardCard(model: model, onOpen: onSdCard),
             const SizedBox(height: 14),
             _OptionsCard(model: model),
             const SizedBox(height: 14),
@@ -687,6 +696,51 @@ class _ImageCardState extends State<_ImageCard> {
           ),
         ],
       ),
+      ),
+    );
+  }
+}
+
+/// Entry point for card fusing: enabled as soon as an image is loaded, since it
+/// needs no board on the USB cable.
+class _SdCardCard extends StatelessWidget {
+  const _SdCardCard({required this.model, required this.onOpen});
+
+  final FlasherModel model;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
+    final enabled = model.canOpenSdCardDialog;
+    return GlassCard(
+      accent: AppColors.warning,
+      active: enabled,
+      child: Row(
+        children: [
+          IconBadge(
+            icon: Icons.sd_card,
+            color: enabled ? AppColors.warning : AppColors.idle,
+            active: enabled,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l10n.burnToSdCard, style: theme.textTheme.titleMedium),
+                const SizedBox(height: 3),
+                Text(l10n.sdCardCardHint, style: theme.textTheme.labelSmall),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: enabled ? onOpen : null,
+            child: Text(l10n.sdCardOpen),
+          ),
+        ],
       ),
     );
   }

@@ -177,3 +177,27 @@ class PartitionInfo {
   /// Null when nothing is flashed to this partition.
   final String? downloadFile;
 }
+
+/// A disk reported by `aw-tool list-disks` as a possible card-fusing target.
+class DiskInfo {
+  DiskInfo(Map<String, dynamic> m)
+      : id = m['id'] as String? ?? '?',
+        displayName = m['display_name'] as String? ?? '?',
+        sizeBytes = m['size_bytes'] as int? ?? 0,
+        removable = m['removable'] as bool? ?? false,
+        isSystemDisk = m['is_system_disk'] as bool? ?? true;
+
+  final String id;
+  final String displayName;
+  final int sizeBytes;
+  final bool removable;
+
+  /// Defaults to true when the CLI leaves it out: unknown is treated as unsafe.
+  final bool isSystemDisk;
+
+  /// `PhysicalDrive2` / `disk4` — the short name the user retypes to confirm,
+  /// and the one they will recognise from Disk Management / Disk Utility.
+  String get shortId => id.replaceFirst(r'\\.\', '').replaceFirst('/dev/', '');
+
+  double get sizeGB => sizeBytes / 1e9;
+}

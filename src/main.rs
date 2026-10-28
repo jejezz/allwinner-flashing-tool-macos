@@ -671,22 +671,21 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             let img = imagewty::ImageWty::open(&image)?;
 
             let mbr_item = img.find("sunxi_mbr.fex").context("sunxi_mbr.fex not found")?;
-            let mbr_data = img.read_item(mbr_item)?;
             let boot1_item = img.find("boot_package.fex").context("boot_package.fex not found")?;
-            let boot1_data = img.read_item(boot1_item)?;
             let boot0_item_ref = img
                 .find(&boot0_item)
                 .with_context(|| format!("{boot0_item} not found"))?;
-            let boot0_data = img.read_item(boot0_item_ref)?;
 
             // Resolve all partition payloads up front so we fail fast (missing
             // file, bad sys_partition.fex) before touching the device at all.
-            struct Job {
+            // Collecting the `Item`s first (just metadata — no read yet) lets us
+            // size the "loading image" progress below without reading twice.
+            struct PendingJob<'a> {
                 name: String,
                 start_sector: u64,
-                data: Vec<u8>,
+                item: &'a imagewty::Item,
             }
-            let mut jobs = Vec::new();
+            let mut pending = Vec::new();
             for p in &sp.partitions {
                 let Some(filename) = &p.downloadfile else { continue };
                 if !selection.includes(&p.name) {
@@ -703,12 +702,45 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                     ));
                     continue;
                 }
+                pending.push(PendingJob { name: p.name.clone(), start_sector: p.start_sector, item });
+            }
+
+            // The reads below are synchronous and can take a while on a large
+            // image or a slow/network drive, with nothing else to show for it —
+            // report progress so a front-end isn't just sitting on a frozen bar.
+            let load_total: u64 = mbr_item.original_length as u64
+                + boot1_item.original_length as u64
+                + boot0_item_ref.original_length as u64
+                + pending.iter().map(|j| j.item.original_length as u64).sum::<u64>();
+            rep.step(
+                "loading_image",
+                format!("reading {} MB from the image...", load_total / (1024 * 1024)),
+            );
+            let mut loaded: u64 = 0;
+            let mut load = |label: &str, item: &imagewty::Item| -> Result<Vec<u8>> {
                 let data = img.read_item(item)?;
-                jobs.push(Job {
-                    name: p.name.clone(),
-                    start_sector: p.start_sector,
-                    data,
-                });
+                loaded += data.len() as u64;
+                rep.log(format!(
+                    "loaded {label} ({} / {} MB)",
+                    loaded / (1024 * 1024),
+                    load_total / (1024 * 1024)
+                ));
+                Ok(data)
+            };
+
+            let mbr_data = load("MBR", mbr_item)?;
+            let boot1_data = load("BOOT1", boot1_item)?;
+            let boot0_data = load("BOOT0", boot0_item_ref)?;
+
+            struct Job {
+                name: String,
+                start_sector: u64,
+                data: Vec<u8>,
+            }
+            let mut jobs = Vec::new();
+            for p in pending {
+                let data = load(&p.name, p.item)?;
+                jobs.push(Job { name: p.name, start_sector: p.start_sector, data });
             }
 
             if jobs.is_empty() {

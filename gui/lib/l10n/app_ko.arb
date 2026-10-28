@@ -41,6 +41,7 @@
   "flashAgain": "다시 플래싱",
   "flashStop": "중단",
   "progressPreparing": "준비 중…",
+  "progressPreparingHint": "이미지를 읽고 보드를 부트스트랩하는 중입니다 — 큰 이미지나 네트워크 드라이브면 1~2분 걸릴 수 있어요.",
   "progressOverall": "전체 {percent}%",
   "@progressOverall": {
     "placeholders": {
@@ -71,7 +72,7 @@
       }
     }
   },
-  "partitionsFullFormat": "전체 포맷 모드 — 모두 기록됩니다",
+  "partitionsFullFormat": "전체 포맷 모드 — 모두 기록됩니다. 일부만 쓰려면 위에서 전체 포맷을 꺼주세요.",
   "partitionsEmpty": "이미지를 선택하면 표시됩니다",
   "partitionKeep": "유지",
   "selectAll": "전체 선택",

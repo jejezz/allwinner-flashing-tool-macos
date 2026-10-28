@@ -835,6 +835,11 @@ class _ProgressCard extends StatelessWidget {
     }
 
     final current = model.currentPartition;
+    // Before the first partition starts (reading the image off disk, then
+    // FEL→EFEX bootstrap) there is no byte count to show yet — a progress
+    // bar frozen at 0% reads as stuck, so this phase gets an indeterminate
+    // spinner and bar instead, plus a hint for why it can take a while.
+    final preparing = current == null && model.phase == Phase.flashing;
     return GlassCard(
       accent: AppColors.accent,
       active: true,
@@ -843,6 +848,14 @@ class _ProgressCard extends StatelessWidget {
         children: [
           Row(
             children: [
+              if (preparing) ...[
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+              ],
               Expanded(
                 child: Text(
                   current ?? l10n.progressPreparing,
@@ -861,9 +874,13 @@ class _ProgressCard extends StatelessWidget {
                 ),
             ],
           ),
+          if (preparing) ...[
+            const SizedBox(height: 2),
+            Text(l10n.progressPreparingHint, style: theme.textTheme.labelSmall),
+          ],
           const SizedBox(height: 12),
           GlassProgressBar(
-            value: model.overallProgress,
+            value: preparing ? null : model.overallProgress,
             color: AppColors.accent,
           ),
           const SizedBox(height: 8),

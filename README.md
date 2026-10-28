@@ -3,13 +3,13 @@
      Fill every {{TODO: …}}; tool/readme/check_readme.py fails while any is left. -->
 
 <p align="center">
-  <img src="gui/assets/icon/app_icon.png" width="128" alt="Allwinner Flasher icon">
+  <img src="gui/assets/icon/app_icon.png" width="128" alt="Hawk Flasher icon">
 </p>
 
-<h1 align="center">Allwinner Flasher</h1>
+<h1 align="center">Hawk Flasher</h1>
 
 <p align="center">
-  A free, open-source <b>PhoenixSuit alternative</b> for flashing Allwinner T507 / T527 boards over FEL/EFEX USB — on macOS, Windows and Linux.
+  A free, open-source <b>PhoenixSuit alternative</b> for flashing AllWinner CPU boards over FEL/EFEX USB — on macOS, Windows and Linux.
 </p>
 
 <p align="center">
@@ -25,12 +25,12 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/demo.gif" width="720" alt="Allwinner Flasher demo: pick an image, connect a board in FEL mode, flash, reboot">
+  <img src="docs/screenshots/demo.gif" width="720" alt="Hawk Flasher demo: pick an image, connect a board in FEL mode, flash, reboot">
 </p>
 
 ## Features
 
-- **FEL to reboot in one pass** — takes the board from FEL into EFEX with primers extracted from the image itself, then writes the partition table, every partition, BOOT1 and BOOT0 (about 1 min 40 s for a 1.1 GB T527 image)
+- **FEL to reboot in one pass** — takes the board from FEL into EFEX with primers extracted from the image itself, then writes the partition table, every partition, BOOT1 and BOOT0 (about 1 min 40 s for a 1.1 GB image)
 - **Keep what you want** — turn off full format and untick partitions (e.g. `userdata`); the confirmation lists exactly what stays
 - **Progress you can read from across the bench** — overall and per-partition progress, a live log, and a window that turns purple while writing, green when done, red on failure
 - **A CLI underneath** — `aw-tool` does everything the app does, with `--json` events for scripting
@@ -47,9 +47,9 @@ Download from [**Releases**](https://github.com/jejezz/allwinner-flashing-tool-m
 
 | OS | File |
 |---|---|
-| macOS 12.0+ (Apple Silicon) | `AllwinnerFlasher-<version>-macos-arm64.dmg` — open it and drag Allwinner Flasher to Applications |
-| Windows 10/11 (x64) | `AllwinnerFlasher-<version>-windows-x64-setup.exe` |
-| Linux (x64) | `AllwinnerFlasher-<version>-linux-x64.tar.gz` — extract and run `./install.sh` (`--remove` to uninstall) |
+| macOS 12.0+ (Apple Silicon) | `HawkFlasher-<version>-macos-arm64.dmg` — open it and drag Hawk Flasher to Applications |
+| Windows 10/11 (x64) | `HawkFlasher-<version>-windows-x64-setup.exe` |
+| Linux (x64) | `HawkFlasher-<version>-linux-x64.tar.gz` — extract and run `./install.sh` (`--remove` to uninstall) |
 
 **Windows:** the installer isn't code-signed yet, so SmartScreen says "Windows protected your PC" — choose **More info → Run anyway**. Before the first flash, bind the board (VID `1f3a` / PID `efe8`, in FEL mode) to the **WinUSB** driver once with [Zadig](https://zadig.akeo.ie/) — otherwise the app never sees it. The troubleshoot button in the app's header walks through it.
 

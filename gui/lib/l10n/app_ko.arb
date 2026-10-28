@@ -16,7 +16,7 @@
   "deviceReady": "플래싱 준비 완료",
   "deviceHint": "FEL 버튼(또는 핀)을 누른 채 전원을 연결하세요",
   "imageTitle": "펌웨어 이미지",
-  "imageHint": ".img 파일을 선택하세요",
+  "imageHint": ".img 파일을 선택하거나 여기로 끌어다 놓으세요",
   "imageLoading": "파티션 정보를 읽는 중…",
   "imageSummary": "전체 {total}개 중 {selected}개 기록",
   "@imageSummary": {

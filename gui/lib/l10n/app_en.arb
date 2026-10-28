@@ -9,7 +9,7 @@
   "deviceReady": "Ready to flash",
   "deviceHint": "Hold the FEL button (or pin) while connecting power",
   "imageTitle": "Firmware image",
-  "imageHint": "Choose a .img file",
+  "imageHint": "Choose a .img file, or drag one here",
   "imageLoading": "Reading partition table…",
   "imageSummary": "{selected} of {total} partitions will be written",
   "choose": "Choose",

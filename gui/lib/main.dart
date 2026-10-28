@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
+import 'package:cross_file/cross_file.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
@@ -409,31 +411,19 @@ class _ControlColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _DeviceCard(model: model),
-          const SizedBox(height: 14),
-          _ImageCard(model: model, onPick: onPick),
-          const SizedBox(height: 14),
-          _OptionsCard(model: model),
-          const SizedBox(height: 18),
-          _ActionButton(model: model, onFlash: onFlash),
-          if (model.phase != Phase.idle &&
-              model.phase != Phase.loadingImage) ...[
-            const SizedBox(height: 14),
-            _ProgressCard(model: model),
-          ],
-          // Only while nothing has run yet: once there is progress to read,
-          // the steps are just noise.
-          if (model.phase == Phase.idle || model.phase == Phase.loadingImage)
-            ...[
-            const SizedBox(height: 14),
-            _StepsCard(model: model),
-          ],
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _DeviceCard(model: model),
+        const SizedBox(height: 14),
+        _ImageCard(model: model, onPick: onPick),
+        const SizedBox(height: 14),
+        _OptionsCard(model: model),
+        const SizedBox(height: 14),
+        Expanded(child: _PartitionCard(model: model)),
+        const SizedBox(height: 18),
+        _ActionButton(model: model, onFlash: onFlash),
+      ],
     );
   }
 }
@@ -589,23 +579,53 @@ class _DeviceCard extends StatelessWidget {
   }
 }
 
-class _ImageCard extends StatelessWidget {
+class _ImageCard extends StatefulWidget {
   const _ImageCard({required this.model, required this.onPick});
 
   final FlasherModel model;
   final VoidCallback onPick;
 
   @override
+  State<_ImageCard> createState() => _ImageCardState();
+}
+
+class _ImageCardState extends State<_ImageCard> {
+  bool _dragging = false;
+
+  /// The first dropped file that looks like a firmware image, or the only
+  /// one dropped — dropping a lone non-`.img` file still gives a clear
+  /// "not found in image" error later rather than silently doing nothing.
+  XFile? _imageFile(List<XFile> files) {
+    for (final f in files) {
+      if (f.path.toLowerCase().endsWith('.img')) return f;
+    }
+    return files.length == 1 ? files.first : null;
+  }
+
+  Future<void> _handleDrop(DropDoneDetails details) async {
+    setState(() => _dragging = false);
+    if (widget.model.busy) return;
+    final file = _imageFile(details.files);
+    if (file != null) await widget.model.loadImage(file.path);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
+    final model = widget.model;
     final path = model.imagePath;
     final loading = model.phase == Phase.loadingImage;
     final loaded = model.partitions.isNotEmpty;
 
-    return GlassCard(
+    return DropTarget(
+      enable: !model.busy,
+      onDragEntered: (_) => setState(() => _dragging = true),
+      onDragExited: (_) => setState(() => _dragging = false),
+      onDragDone: _handleDrop,
+      child: GlassCard(
       accent: AppColors.accent,
-      active: loaded,
+      active: loaded || _dragging,
       child: Row(
         children: [
           IconBadge(
@@ -640,10 +660,11 @@ class _ImageCard extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           TextButton(
-            onPressed: model.busy ? null : onPick,
+            onPressed: model.busy ? null : widget.onPick,
             child: Text(path == null ? l10n.choose : l10n.change),
           ),
         ],
+      ),
       ),
     );
   }
@@ -883,25 +904,27 @@ class _ProgressCard extends StatelessWidget {
             value: preparing ? null : model.overallProgress,
             color: AppColors.accent,
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                l10n.progressOverall(
-                  (model.overallProgress * 100).toStringAsFixed(0),
-                ),
-                style: theme.textTheme.labelSmall,
-              ),
-              if (current != null)
+          if (!preparing) ...[
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
                 Text(
-                  l10n.progressPartition(
-                    (model.partitionProgress * 100).toStringAsFixed(0),
+                  l10n.progressOverall(
+                    (model.overallProgress * 100).toStringAsFixed(0),
                   ),
                   style: theme.textTheme.labelSmall,
                 ),
-            ],
-          ),
+                if (current != null)
+                  Text(
+                    l10n.progressPartition(
+                      (model.partitionProgress * 100).toStringAsFixed(0),
+                    ),
+                    style: theme.textTheme.labelSmall,
+                  ),
+              ],
+            ),
+          ],
           if (current != null) ...[
             const SizedBox(height: 6),
             GlassProgressBar(
@@ -926,9 +949,13 @@ class _DetailColumn extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(flex: 4, child: _PartitionCard(model: model)),
+        // Only while nothing has run yet: once there is progress to read,
+        // the steps are just noise.
+        model.phase == Phase.idle || model.phase == Phase.loadingImage
+            ? _StepsCard(model: model)
+            : _ProgressCard(model: model),
         const SizedBox(height: 14),
-        Expanded(flex: 5, child: _LogCard(lines: model.log)),
+        Expanded(child: _LogCard(lines: model.log)),
       ],
     );
   }

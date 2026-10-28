@@ -8,7 +8,7 @@ class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(18),
+    this.padding = const EdgeInsets.all(12),
     this.accent,
     this.active = false,
     this.onTap,
@@ -127,7 +127,7 @@ class IconBadge extends StatelessWidget {
     required this.icon,
     required this.color,
     this.active = false,
-    this.size = 46,
+    this.size = 36,
   });
 
   final IconData icon;

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'dart:io' show Platform;
+
 import 'aw_tool.dart';
 import 'flasher_model.dart';
 import 'l10n/app_localizations.dart';
@@ -33,35 +35,17 @@ class SdCardDialog extends StatefulWidget {
 class _SdCardDialogState extends State<SdCardDialog> {
   _Step _step = _Step.select;
   DiskInfo? _selected;
-  bool _acknowledged = false;
-  final _typed = TextEditingController();
 
   FlasherModel get model => widget.model;
 
-  @override
-  void dispose() {
-    _typed.dispose();
-    super.dispose();
-  }
-
-  /// A disk that is not reported as removable is allowed only once the user
-  /// has said, in so many words, that it is their card.
+  /// The pick must still be on offer: a card pulled out and the list refreshed
+  /// leaves the old selection pointing at nothing.
   bool get _canContinue {
     final d = _selected;
-    if (d == null || d.isSystemDisk) return false;
-    return d.removable || _acknowledged;
+    return d != null && model.sdTargets.any((t) => t.id == d.id);
   }
 
-  bool get _typedMatches =>
-      _selected != null &&
-      _typed.text.trim().toLowerCase() == _selected!.shortId.toLowerCase();
-
-  void _select(DiskInfo d) {
-    setState(() {
-      _selected = d;
-      _acknowledged = false;
-    });
-  }
+  void _select(DiskInfo d) => setState(() => _selected = d);
 
   Future<void> _confirmStop() async {
     final l10n = AppLocalizations.of(context);
@@ -154,37 +138,21 @@ class _SdCardDialogState extends State<SdCardDialog> {
                             color: AppColors.danger,
                           ),
                         )
-                      : model.sdDisks.isEmpty
+                      : model.sdTargets.isEmpty
                           ? Text(l10n.sdCardNoDisks)
                           : SingleChildScrollView(
                               child: Column(
                                 children: [
-                                  for (final d in model.sdDisks)
+                                  for (final d in model.sdTargets)
                                     _DiskTile(
                                       disk: d,
                                       selected: selected?.id == d.id,
-                                      onTap: d.isSystemDisk ? null : () => _select(d),
+                                      onTap: () => _select(d),
                                     ),
                                 ],
                               ),
                             ),
             ),
-            if (selected != null && !selected.removable && !selected.isSystemDisk) ...[
-              const SizedBox(height: 8),
-              CheckboxListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: _acknowledged,
-                onChanged: (v) => setState(() => _acknowledged = v ?? false),
-                title: Text(
-                  l10n.sdCardNotRemovableAck,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.danger,
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -200,10 +168,7 @@ class _SdCardDialogState extends State<SdCardDialog> {
         FilledButton(
           style: FilledButton.styleFrom(minimumSize: const Size(100, 44)),
           onPressed: _canContinue && !loading
-              ? () => setState(() {
-                    _typed.clear();
-                    _step = _Step.confirm;
-                  })
+              ? () => setState(() => _step = _Step.confirm)
               : null,
           child: Text(l10n.sdCardNext),
         ),
@@ -236,19 +201,6 @@ class _SdCardDialogState extends State<SdCardDialog> {
               l10n.sdCardConfirmBody(d.displayName, d.sizeGB.toStringAsFixed(1)),
               style: theme.textTheme.bodyLarge,
             ),
-            const SizedBox(height: 14),
-            Text(l10n.sdCardTypeToVerify(d.shortId), style: theme.textTheme.bodyMedium),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _typed,
-              autofocus: true,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                isDense: true,
-                border: const OutlineInputBorder(),
-                hintText: d.shortId,
-              ),
-            ),
           ],
         ),
       ),
@@ -266,9 +218,7 @@ class _SdCardDialogState extends State<SdCardDialog> {
             backgroundColor: AppColors.danger,
             minimumSize: const Size(120, 44),
           ),
-          onPressed: _typedMatches
-              ? () => model.startSdCardFlash(d, force: !d.removable)
-              : null,
+          onPressed: () => model.startSdCardFlash(d, force: false),
           child: Text(l10n.sdCardWrite),
         ),
       ],
@@ -306,7 +256,9 @@ class _SdCardDialogState extends State<SdCardDialog> {
             const SizedBox(height: 10),
             Text(
               region == null
-                  ? l10n.progressPreparing
+                  // On Windows the writer is started through a UAC prompt, which
+                  // can sit behind other windows; say what is being waited for.
+                  ? (Platform.isWindows ? l10n.sdCardPreparingAdmin : l10n.progressPreparing)
                   : '${l10n.sdCardWritingRegion(region)}  ·  $pct%',
               style: theme.textTheme.bodyMedium,
             ),
@@ -381,49 +333,39 @@ class _DiskTile extends StatelessWidget {
 
   final DiskInfo disk;
   final bool selected;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
-    final disabled = onTap == null;
+    const color = AppColors.success;
 
-    final (badge, color) = disk.isSystemDisk
-        ? (l10n.sdCardBadgeSystem, AppColors.danger)
-        : disk.removable
-            ? (l10n.sdCardBadgeRemovable, AppColors.success)
-            : (l10n.sdCardBadgeNotRemovable, AppColors.danger);
-
-    return Opacity(
-      opacity: disabled ? 0.5 : 1,
-      child: ListTile(
-        dense: true,
-        enabled: !disabled,
-        selected: selected,
-        selectedTileColor: AppColors.accent.withValues(alpha: 0.12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        leading: Icon(
-          selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-        ),
-        title: Text(disk.displayName, overflow: TextOverflow.ellipsis),
-        subtitle: Text(
-          '${disk.shortId}  ·  ${disk.sizeGB.toStringAsFixed(1)} GB',
-          style: theme.textTheme.labelSmall,
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            badge,
-            style: theme.textTheme.labelSmall?.copyWith(color: color),
-          ),
-        ),
-        onTap: onTap,
+    return ListTile(
+      dense: true,
+      selected: selected,
+      selectedTileColor: AppColors.accent.withValues(alpha: 0.12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
       ),
+      title: Text(disk.displayName, overflow: TextOverflow.ellipsis),
+      subtitle: Text(
+        '${disk.shortId}  ·  ${disk.sizeGB.toStringAsFixed(1)} GB',
+        style: theme.textTheme.labelSmall,
+      ),
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          l10n.sdCardBadgeRemovable,
+          style: theme.textTheme.labelSmall?.copyWith(color: color),
+        ),
+      ),
+      onTap: onTap,
     );
   }
 }

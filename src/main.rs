@@ -198,6 +198,16 @@ enum Command {
         #[arg(long, default_value_t = sdcard::DEFAULT_MAX_SIZE_BYTES)]
         max_size_bytes: u64,
     },
+
+    /// Internal: the elevated half of `flash-sdcard` on Windows. Started by
+    /// `flash-sdcard` itself through a UAC prompt; not meant to be run by hand.
+    #[command(hide = true)]
+    FlashSdcardWorker {
+        #[arg(long)]
+        port: u16,
+        #[arg(long)]
+        token: String,
+    },
 }
 
 /// Which partitions a run should write.
@@ -714,6 +724,12 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             }
         }
 
+        Command::FlashSdcardWorker { port, token } => {
+            // Its result goes back over the socket; there is no console to
+            // print to, so the error is deliberately not returned.
+            let _ = sdcard::run_worker(port, &token);
+        }
+
         Command::FlashSdcard {
             image,
             disk,
@@ -758,20 +774,18 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                 ),
             );
 
-            let mut open = sdcard::open_for_write(target)?;
-            let mut firmware =
-                std::fs::File::open(&image).with_context(|| format!("opening {:?}", image))?;
-            sdcard::write_card_layout(
-                &mut open.file,
+            sdcard::flash(
+                target,
                 &boot0,
                 &boot_package,
-                &mut firmware,
+                &image,
                 firmware_len,
+                &sdcard::FlashParams {
+                    force,
+                    max_size_bytes,
+                },
                 rep,
             )?;
-            open.file
-                .sync_all()
-                .context("flushing the card after writing")?;
             rep.step(
                 "card_written",
                 "card written — insert it into the board and power on (no USB needed)",

@@ -15,7 +15,12 @@ use serde_json::{json, Value};
 use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::net::TcpStream;
+use std::path::Path;
 use std::time::Instant;
+
+mod relay;
+use relay::Target;
 
 #[cfg(windows)]
 mod windows;
@@ -107,7 +112,6 @@ impl std::error::Error for SafetyError {}
 /// locks) alive for as long as the file is.
 pub struct OpenDisk {
     pub file: File,
-    #[allow(dead_code)]
     pub guard: Option<Box<dyn std::any::Any>>,
 }
 
@@ -187,9 +191,74 @@ fn recheck(disk: &DiskInfo) -> Result<()> {
     }
 }
 
-pub fn open_for_write(disk: &DiskInfo) -> Result<OpenDisk> {
+fn open_for_write(disk: &DiskInfo) -> Result<OpenDisk> {
     recheck(disk)?;
     platform::open_for_write(disk)
+}
+
+/// What the safety checks need beyond the disk itself, carried to the elevated
+/// writer so it can repeat them.
+pub struct FlashParams {
+    pub force: bool,
+    pub max_size_bytes: u64,
+}
+
+fn open_target(disk: &DiskInfo) -> Result<Target> {
+    let opened = open_for_write(disk)?;
+    Ok(Target {
+        out: Box::new(opened.file),
+        guard: opened.guard,
+    })
+}
+
+/// Write the card layout to `disk`. Without administrator rights (Windows) the
+/// write is handed to an elevated copy of this program; the image is still read
+/// here, so network drives and the user's own session stay in play.
+pub fn flash(
+    disk: &DiskInfo,
+    boot0: &[u8],
+    boot_package: &[u8],
+    image: &Path,
+    firmware_len: u64,
+    params: &FlashParams,
+    rep: &Reporter,
+) -> Result<()> {
+    #[cfg(windows)]
+    if !platform::is_elevated() {
+        return platform::flash_via_worker(
+            disk,
+            boot0,
+            boot_package,
+            image,
+            firmware_len,
+            params,
+            rep,
+        );
+    }
+    let mut firmware =
+        File::open(image).with_context(|| format!("opening {:?}", image))?;
+    let mut target = open_target(disk)?;
+    write_card_layout(&mut target.out, boot0, boot_package, &mut firmware, firmware_len, rep)?;
+    target.out.sync().context("flushing the card after writing")?;
+    Ok(())
+}
+
+/// The elevated half of [`flash`]: connect back to the parent, take the data it
+/// streams, and write it. It does not trust the parent — the disk is looked up
+/// and safety-checked again here, with the parent's own `--force` and size
+/// limit but never a way around the system-disk and too-small refusals.
+pub fn run_worker(port: u16, token: &str) -> Result<()> {
+    let stream =
+        TcpStream::connect(("127.0.0.1", port)).context("connecting to the parent process")?;
+    relay::worker_session(stream, token, &mut |h| {
+        let disks = enumerate_disks()?;
+        let disk = disks
+            .iter()
+            .find(|d| same_id(&d.id, &h.disk))
+            .with_context(|| format!("disk '{}' not found", h.disk))?;
+        check_disk_safety(disk, required_bytes(h.firmware_len), h.max_size_bytes, h.force)?;
+        open_target(disk)
+    })
 }
 
 /// boot0 as the card needs it: work_mode = CARD_PRODUCT, checksum recomputed.

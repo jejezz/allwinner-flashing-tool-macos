@@ -346,6 +346,12 @@ class FlasherModel extends ChangeNotifier {
   double _sdCurrentFraction = 0;
   AwRun? _sdRun;
 
+  /// What the GUI offers as a target: removable media that is not the system
+  /// disk, nothing else. The CLI's `--force` exists for experts; the window
+  /// never shows an internal or external hard drive, so it cannot be picked.
+  List<DiskInfo> get sdTargets =>
+      sdDisks.where((d) => d.removable && !d.isSystemDisk).toList();
+
   bool get sdBusy =>
       sdCardPhase == SdCardPhase.writing ||
       sdCardPhase == SdCardPhase.enumerating;
@@ -377,6 +383,13 @@ class FlasherModel extends ChangeNotifier {
             .cast<Map<String, dynamic>>()
             .map(DiskInfo.new)
             .toList();
+        // No `disks` event at all means the helper does not know the command —
+        // an aw-tool built before card fusing existed. Saying "no disks found"
+        // there would send the user looking at their card reader instead.
+        if (data == null) {
+          sdCardError = _l10n?.sdCardToolOutdated ??
+              'This aw-tool does not support listing disks. Rebuild it.';
+        }
       }
     } catch (e) {
       sdDisks = [];

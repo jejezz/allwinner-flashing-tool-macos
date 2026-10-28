@@ -241,7 +241,10 @@ sudo aw-tool flash-sdcard firmware.img /dev/disk4        # macOS
 
 `<disk>`는 `list-disks`가 출력한 id 그대로여야 하고(임의 경로·파일은 받지 않는다), 쓰기 직전에 목록을 다시 읽어 같은 디스크인지 확인한다. 거부는 JSON 모드에서 `error` 이벤트의 `kind`(`is_system_disk` / `too_small` / `not_removable` / `too_large` / `size_mismatch`)로 구분된다.
 
-raw 디스크 쓰기에는 관리자 권한(Windows) 또는 `sudo`(macOS)가 필요하다. GUI도 같은 이유로 그 권한으로 실행해야 한다.
+raw 디스크 쓰기에는 관리자 권한이 필요하다.
+
+- **Windows**: 일반 권한으로 실행하면 된다. `flash-sdcard`가 UAC 승인을 한 번 받아 숨김 쓰기 프로세스(`flash-sdcard-worker`, 사용자가 직접 실행하는 명령이 아니다)를 띄우고, 이미지는 일반 권한 쪽이 읽어 로컬 소켓으로 흘려보낸다. 앱 전체를 관리자로 띄우면 네트워크 드라이브(Z: 등)가 보이지 않고 탐색기 끌어다 놓기가 막히기 때문에 이렇게 나눴다. 쓰기 프로세스는 부모를 믿지 않고 시스템 디스크·용량 검사를 스스로 다시 한다. 중단은 부모가 사라지는 것(소켓이 닫힘)으로 처리된다.
+- **macOS**: `sudo`로 실행해야 한다. 같은 분리 방식은 아직 만들지 않았다.
 
 ## 명령 목록
 
@@ -477,6 +480,7 @@ EFEX
 | `src/sparse.rs` | Android sparse 이미지 파서 |
 | `src/sys_partition.rs` | `sys_partition.fex` 파서 + 오프셋 계산 |
 | `src/sdcard/` | 카드 퓨징: 디스크 열거(Windows/macOS), 안전검사, 고정 LBA 기록 |
+| `src/sdcard/relay.rs` | 일반 권한 프로세스 → 관리자 쓰기 프로세스로 이미지를 흘려보내는 소켓 프로토콜 |
 | `src/event.rs` | 진행 리포터 (산문 / NDJSON 양쪽) |
 | `gui/lib/aw_tool.dart` | CLI 실행 + JSON 이벤트 파싱 |
 | `gui/lib/flasher_model.dart` | 장치 폴링, 이미지 로딩, 플래싱 상태 |

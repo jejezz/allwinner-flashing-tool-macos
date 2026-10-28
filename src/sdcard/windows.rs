@@ -5,12 +5,31 @@
 //! `CTL_CODE(...)` macros in the SDK headers) so the only external surface is
 //! `DeviceIoControl` itself.
 
-use super::{DiskInfo, OpenDisk};
+use super::relay::{self, Header};
+use super::{DiskInfo, FlashParams, OpenDisk};
+use crate::event::Reporter;
 use anyhow::{bail, Context, Result};
+use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
+use std::net::TcpListener;
+use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
+use std::path::Path;
+use std::time::{Duration, Instant};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Security::Cryptography::BCryptGenRandom;
+use windows_sys::Win32::Security::{
+    GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows_sys::Win32::System::IO::DeviceIoControl;
+use windows_sys::Win32::UI::Shell::ShellExecuteW;
+
+/// How long to wait for the elevated writer to appear: the user has to find and
+/// answer the UAC prompt first.
+const WORKER_START_TIMEOUT: Duration = Duration::from_secs(120);
+const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x2;
 
 const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002D_1400;
 const IOCTL_DISK_GET_DRIVE_GEOMETRY_EX: u32 = 0x0007_00A0;
@@ -156,6 +175,126 @@ fn describe(n: u32, system: &[u32]) -> Option<DiskInfo> {
 pub fn enumerate() -> Result<Vec<DiskInfo>> {
     let system = system_disk_numbers()?;
     Ok((0..MAX_DISKS).filter_map(|n| describe(n, &system)).collect())
+}
+
+/// Whether this process holds an elevated (administrator) token.
+pub fn is_elevated() -> bool {
+    unsafe {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut returned = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            (&mut elevation as *mut TOKEN_ELEVATION).cast(),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut returned,
+        );
+        CloseHandle(token);
+        ok != 0 && elevation.TokenIsElevated != 0
+    }
+}
+
+/// 128 random bits from the system generator, as hex. It is what stops another
+/// local process from posing as the elevated writer on the loopback port.
+fn random_token() -> Result<String> {
+    let mut bytes = [0u8; 16];
+    let status = unsafe {
+        BCryptGenRandom(
+            std::ptr::null_mut(),
+            bytes.as_mut_ptr(),
+            bytes.len() as u32,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        )
+    };
+    if status != 0 {
+        bail!("could not generate a session token (status {status:#x})");
+    }
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn wide(s: impl AsRef<OsStr>) -> Vec<u16> {
+    s.as_ref().encode_wide().chain(std::iter::once(0)).collect()
+}
+
+/// Start this same executable again, elevated and with no window, as the card
+/// writer. Blocks only while the UAC prompt is up.
+fn spawn_elevated_worker(port: u16, token: &str) -> Result<()> {
+    let exe = std::env::current_exe().context("locating aw-tool")?;
+    let verb = wide("runas");
+    let file = wide(&exe);
+    let params = wide(format!("flash-sdcard-worker --port {port} --token {token}"));
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            params.as_ptr(),
+            std::ptr::null(),
+            0, // SW_HIDE
+        )
+    } as isize;
+    // ShellExecute reports failure with a value of 32 or less. Declining the
+    // UAC prompt comes back as access denied.
+    if result <= 32 {
+        bail!(
+            "administrator permission was not granted — raw disk writes need it \
+             (UAC prompt declined or unavailable, code {result})"
+        );
+    }
+    Ok(())
+}
+
+/// Hand the write to an elevated copy of this program and stream the image to
+/// it. The image is read here, in the user's own session.
+pub fn flash_via_worker(
+    disk: &DiskInfo,
+    boot0: &[u8],
+    boot_package: &[u8],
+    image: &Path,
+    firmware_len: u64,
+    params: &FlashParams,
+    rep: &Reporter,
+) -> Result<()> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).context("opening a local socket")?;
+    listener.set_nonblocking(true)?;
+    let port = listener.local_addr()?.port();
+    let token = random_token()?;
+
+    let mut firmware = File::open(image).with_context(|| format!("opening {:?}", image))?;
+    rep.step(
+        "elevating",
+        "starting the elevated card writer — approve the permission prompt",
+    );
+    spawn_elevated_worker(port, &token)?;
+
+    let deadline = Instant::now() + WORKER_START_TIMEOUT;
+    let stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    bail!("the elevated card writer never started");
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(e).context("waiting for the elevated card writer"),
+        }
+    };
+    stream.set_nonblocking(false)?;
+
+    let header = Header {
+        disk: disk.id.clone(),
+        force: params.force,
+        max_size_bytes: params.max_size_bytes,
+        boot0_len: boot0.len() as u64,
+        boot_package_len: boot_package.len() as u64,
+        firmware_len,
+    };
+    relay::parent_session(stream, &token, &header, boot0, boot_package, &mut firmware, rep)
 }
 
 fn disk_number(id: &str) -> Result<u32> {

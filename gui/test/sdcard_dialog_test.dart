@@ -15,13 +15,8 @@ DiskInfo _disk(String id, String name,
       'is_system_disk': system,
     });
 
-Future<FlasherModel> _open(WidgetTester tester) async {
-  final model = FlasherModel()
-    ..sdDisks = [
-      _disk(r'\\.\PhysicalDrive0', 'Internal NVMe', removable: false, system: true),
-      _disk(r'\\.\PhysicalDrive1', 'External SSD', removable: false),
-      _disk(r'\\.\PhysicalDrive2', 'SanDisk Ultra'),
-    ];
+Future<FlasherModel> _open(WidgetTester tester, List<DiskInfo> disks) async {
+  final model = FlasherModel()..sdDisks = disks;
   await tester.pumpWidget(MaterialApp(
     locale: const Locale('en'),
     localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -31,20 +26,39 @@ Future<FlasherModel> _open(WidgetTester tester) async {
   return model;
 }
 
+final _mixed = [
+  _disk(r'\\.\PhysicalDrive0', 'Internal NVMe', removable: false, system: true),
+  _disk(r'\\.\PhysicalDrive1', 'External SSD', removable: false),
+  _disk(r'\\.\PhysicalDrive2', 'SanDisk Ultra'),
+];
+
 bool _enabled(WidgetTester tester, String label) =>
     tester.widget<FilledButton>(find.widgetWithText(FilledButton, label)).onPressed != null;
 
 void main() {
-  testWidgets('the system disk cannot be selected', (tester) async {
-    await _open(tester);
-    expect(find.text('System disk'), findsOneWidget);
-    await tester.tap(find.text('Internal NVMe'));
-    await tester.pump();
+  testWidgets('only removable, non-system disks are listed', (tester) async {
+    await _open(tester, _mixed);
+    expect(find.text('SanDisk Ultra'), findsOneWidget);
+    expect(find.text('Internal NVMe'), findsNothing);
+    expect(find.text('External SSD'), findsNothing);
+  });
+
+  testWidgets('a removable flag on the system disk still hides it', (tester) async {
+    await _open(tester, [
+      _disk(r'\\.\PhysicalDrive0', 'Odd system disk', removable: true, system: true),
+    ]);
+    expect(find.text('Odd system disk'), findsNothing);
+    expect(find.textContaining('No removable disks'), findsOneWidget);
+  });
+
+  testWidgets('with nothing removable the list says so and Next stays off', (tester) async {
+    await _open(tester, _mixed.take(2).toList());
+    expect(find.textContaining('No removable disks'), findsOneWidget);
     expect(_enabled(tester, 'Next'), isFalse);
   });
 
-  testWidgets('a removable disk goes on to a retype-the-name confirmation', (tester) async {
-    await _open(tester);
+  testWidgets('picking a card leads to one erase warning, then Write', (tester) async {
+    await _open(tester, _mixed);
     expect(_enabled(tester, 'Next'), isFalse);
 
     await tester.tap(find.text('SanDisk Ultra'));
@@ -54,38 +68,20 @@ void main() {
     await tester.tap(find.text('Next'));
     await tester.pump();
     expect(find.text('Write to this SD card?'), findsOneWidget);
-    expect(_enabled(tester, 'Write'), isFalse);
-
-    await tester.enterText(find.byType(TextField), 'PhysicalDrive1');
-    await tester.pump();
-    expect(_enabled(tester, 'Write'), isFalse);
-
-    await tester.enterText(find.byType(TextField), 'physicaldrive2');
-    await tester.pump();
+    expect(find.textContaining('SanDisk Ultra'), findsOneWidget);
+    expect(find.textContaining('cannot be recovered'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
     expect(_enabled(tester, 'Write'), isTrue);
   });
 
-  testWidgets('a non-removable disk needs an explicit acknowledgement', (tester) async {
-    await _open(tester);
-    await tester.tap(find.text('External SSD'));
-    await tester.pump();
-    expect(_enabled(tester, 'Next'), isFalse);
-
-    await tester.tap(find.byType(Checkbox));
-    await tester.pump();
-    expect(_enabled(tester, 'Next'), isTrue);
-  });
-
-  testWidgets('switching disks clears the acknowledgement', (tester) async {
-    await _open(tester);
-    await tester.tap(find.text('External SSD'));
-    await tester.pump();
-    await tester.tap(find.byType(Checkbox));
-    await tester.pump();
-
+  testWidgets('a selected card that disappears can no longer be continued', (tester) async {
+    final model = await _open(tester, _mixed);
     await tester.tap(find.text('SanDisk Ultra'));
     await tester.pump();
-    await tester.tap(find.text('External SSD'));
+    expect(_enabled(tester, 'Next'), isTrue);
+
+    model.sdDisks = _mixed.take(2).toList();
+    model.notifyListeners();
     await tester.pump();
     expect(_enabled(tester, 'Next'), isFalse);
   });

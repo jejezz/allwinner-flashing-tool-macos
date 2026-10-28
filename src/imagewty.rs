@@ -132,4 +132,16 @@ impl ImageWty {
             .with_context(|| format!("reading payload for {}", item.filename))?;
         Ok(buf)
     }
+
+    /// Open the image file seeked to `item`'s payload, for streaming it
+    /// straight into a device write instead of reading it all into memory
+    /// first — `item.original_length` bounds how much the caller may read;
+    /// `File` itself doesn't enforce that.
+    pub fn open_item(&self, item: &Item) -> Result<File> {
+        let mut f = File::open(&self.path)
+            .with_context(|| format!("opening {:?}", self.path))?;
+        f.seek(SeekFrom::Start(item.file_offset as u64))
+            .with_context(|| format!("seeking to {}'s payload", item.filename))?;
+        Ok(f)
+    }
 }

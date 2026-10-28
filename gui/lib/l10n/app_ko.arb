@@ -41,7 +41,7 @@
   "flashAgain": "다시 플래싱",
   "flashStop": "중단",
   "progressPreparing": "준비 중…",
-  "progressPreparingHint": "이미지를 읽고 보드를 부트스트랩하는 중입니다 — 큰 이미지나 네트워크 드라이브면 1~2분 걸릴 수 있어요.",
+  "progressPreparingHint": "보드를 FEL에서 EFEX로 부트스트랩하는 중입니다 — 보통 수십 초 걸려요.",
   "progressOverall": "전체 {percent}%",
   "@progressOverall": {
     "placeholders": {

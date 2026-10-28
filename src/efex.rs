@@ -20,6 +20,8 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use rusb::{DeviceHandle, GlobalContext};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::time::Duration;
 
 const VENDOR_ID: u16 = 0x1f3a;
@@ -419,28 +421,35 @@ impl EfexDevice {
     /// largest size verified to work end-to-end on real hardware.
     const FLASH_CHUNK_BYTES: usize = 64 * 1024;
 
-    /// Write a regular partition's data at `start_sector` (absolute sector
-    /// number, matching sys_partition.fex's computed offsets — see
-    /// src/sys_partition.rs). `dest_type=0` (no DRAM_MASK bits) routes
-    /// through the plain `sunxi_flash_write(flash_start, flash_sectors, ...)`
-    /// path. Chunked per FLASH_CHUNK_BYTES; each chunk is its own complete
-    /// fes_down (announce+data+flush), sector offset advancing by
-    /// chunk_len/512 each time.
+    /// Write a regular partition at `start_sector` (absolute sector number,
+    /// matching sys_partition.fex's computed offsets — see
+    /// src/sys_partition.rs), streaming it from `source` (e.g.
+    /// `ImageWty::open_item`, already seeked to the payload) instead of
+    /// requiring it already in memory — a partition can be most of a
+    /// gigabyte, and holding one in RAM just to immediately chop it into
+    /// FLASH_CHUNK_BYTES pieces was pure overhead. `len` is the exact byte
+    /// count to read (`source` itself isn't bounded to it). `dest_type=0`
+    /// (no DRAM_MASK bits) routes through the plain
+    /// `sunxi_flash_write(flash_start, flash_sectors, ...)` path.
     /// `on_progress` is called with each chunk's byte count as it lands, so a
     /// caller can report byte-level progress: `super` alone is ~1 GB, and
     /// partition-level reporting would leave a progress bar frozen on one step
     /// for over a minute.
-    pub fn write_partition(
+    pub fn write_partition_stream(
         &mut self,
         start_sector: u64,
-        data: &[u8],
+        source: &mut dyn Read,
+        len: u64,
         on_progress: &mut dyn FnMut(usize),
     ) -> Result<()> {
-        self.write_at_sector(start_sector, data, on_progress)
+        let mut buf = vec![0u8; Self::FLASH_CHUNK_BYTES];
+        self.write_stream_at_sector(start_sector, source, len, &mut buf, on_progress)
     }
 
     /// Write `data` starting at an absolute sector, split into
-    /// FLASH_CHUNK_BYTES pieces (each its own complete fes_down).
+    /// FLASH_CHUNK_BYTES pieces (each its own complete fes_down). For data
+    /// already in memory (sparse FILL patterns, which are synthesised, not
+    /// read from the image).
     fn write_at_sector(
         &mut self,
         start_sector: u64,
@@ -461,6 +470,41 @@ impl EfexDevice {
         Ok(())
     }
 
+    /// Like `write_at_sector`, but pulls bytes from `source` (reading into
+    /// the reusable `buf` scratch space, up to `buf.len()` at a time) instead
+    /// of requiring the whole payload already sliced in memory. `len` bytes
+    /// are read in total, regardless of how much more `source` might have.
+    fn write_stream_at_sector(
+        &mut self,
+        start_sector: u64,
+        source: &mut dyn Read,
+        len: u64,
+        buf: &mut [u8],
+        on_progress: &mut dyn FnMut(usize),
+    ) -> Result<()> {
+        use crate::sys_partition::SECTOR_SIZE;
+
+        let mut remaining = len;
+        let mut byte_offset: u64 = 0;
+        let mut i = 0usize;
+        while remaining > 0 {
+            let want = remaining.min(buf.len() as u64) as usize;
+            source
+                .read_exact(&mut buf[..want])
+                .with_context(|| format!("reading chunk {i} from the image"))?;
+            let sector = start_sector + byte_offset / SECTOR_SIZE;
+            let addr = u32::try_from(sector)
+                .map_err(|_| anyhow!("sector {sector} does not fit in u32"))?;
+            self.fes_down(addr, 0, &buf[..want])
+                .with_context(|| format!("writing chunk {i} at sector 0x{sector:x}"))?;
+            on_progress(want);
+            remaining -= want as u64;
+            byte_offset += want as u64;
+            i += 1;
+        }
+        Ok(())
+    }
+
     /// Write an Android *sparse* image, expanding it as we go.
     ///
     /// `super.fex` ships as a sparse container, not a raw partition image: the
@@ -471,22 +515,33 @@ impl EfexDevice {
     /// before mounting anything — see docs section on the super/sparse fix.
     ///
     /// DONT_CARE regions are skipped: erase_flag=1 already cleared them.
+    ///
+    /// `source` is the whole IMAGEWTY image file — `img`'s RAW segments were
+    /// recorded by `sparse::parse_streaming` as offsets into exactly that
+    /// file, and are read from there on demand (seek + stream), rather than
+    /// requiring the whole expanded image already in memory.
     pub fn write_partition_sparse(
         &mut self,
         start_sector: u64,
-        img: &crate::sparse::SparseImage<'_>,
+        source: &mut File,
+        img: &crate::sparse::SparseImage,
         on_progress: &mut dyn FnMut(usize),
     ) -> Result<()> {
         use crate::sparse::Segment;
         use crate::sys_partition::SECTOR_SIZE;
 
+        let mut buf = vec![0u8; Self::FLASH_CHUNK_BYTES];
         for (i, seg) in img.segments.iter().enumerate() {
             match seg {
-                Segment::Raw { out_offset, data } => {
+                Segment::Raw { out_offset, file_offset, len } => {
+                    source
+                        .seek(SeekFrom::Start(*file_offset))
+                        .with_context(|| format!("seeking to sparse segment {i}"))?;
                     let sector = start_sector + out_offset / SECTOR_SIZE;
-                    self.write_at_sector(sector, data, on_progress).with_context(|| {
-                        format!("sparse segment {i}: raw at partition offset {out_offset}")
-                    })?;
+                    self.write_stream_at_sector(sector, source, *len, &mut buf, on_progress)
+                        .with_context(|| {
+                            format!("sparse segment {i}: raw at partition offset {out_offset}")
+                        })?;
                 }
                 Segment::Fill {
                     out_offset,

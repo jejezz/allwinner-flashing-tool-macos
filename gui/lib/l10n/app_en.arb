@@ -24,7 +24,7 @@
   "flashAgain": "Flash again",
   "flashStop": "Stop",
   "progressPreparing": "Preparing…",
-  "progressPreparingHint": "Reading the image and bootstrapping the board — can take 1-2 minutes for a large image or a network drive.",
+  "progressPreparingHint": "Bootstrapping the board from FEL into EFEX — usually tens of seconds.",
   "progressOverall": "Overall {percent}%",
   "progressPartition": "This partition {percent}%",
   "resultDone": "Done",

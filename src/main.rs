@@ -10,6 +10,7 @@ mod sys_partition;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use event::Reporter;
+use std::io::Read;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -244,31 +245,45 @@ struct WriteOutcome {
     detail: String,
 }
 
-/// Write a partition payload, expanding it first if it is an Android sparse
-/// image (`super.fex` is one).
+/// Write a partition, expanding it first if it is an Android sparse image
+/// (`super.fex` is one). Streams straight out of the image file — `item`
+/// is read on demand rather than already being in memory, so this can be
+/// called right after resolving `item` from the item table, with no
+/// separate "load the whole image" pass first.
 ///
 /// Progress is reported per 64 KB chunk against the number of bytes actually
 /// sent, which for a sparse image is the payload size — not the file size and
 /// not the expanded size, since DONT_CARE regions are skipped entirely.
 fn write_partition_auto(
     dev: &mut efex::EfexDevice,
+    image: &imagewty::ImageWty,
+    item: &imagewty::Item,
     start_sector: u64,
-    data: &[u8],
     name: &str,
     rep: &Reporter,
 ) -> Result<WriteOutcome> {
-    if sparse::is_sparse(data) {
-        let img = sparse::parse(data)?;
+    // Sparse images start with a 4-byte magic; a genuinely 4-byte-or-smaller
+    // partition can't be one (the real header is 28 bytes), so there's
+    // nothing to probe for those.
+    let is_sparse = item.original_length >= 4 && {
+        let mut magic = [0u8; 4];
+        image.open_item(item)?.read_exact(&mut magic)?;
+        sparse::is_sparse(&magic)
+    };
+
+    if is_sparse {
+        let mut source = image.open_item(item)?;
+        let img = sparse::parse_streaming(&mut source)?;
         let payload: u64 = img
             .segments
             .iter()
             .map(|s| match s {
-                sparse::Segment::Raw { data, .. } => data.len() as u64,
+                sparse::Segment::Raw { len, .. } => *len,
                 sparse::Segment::Fill { len, .. } => *len,
             })
             .sum();
         let mut written = 0u64;
-        dev.write_partition_sparse(start_sector, &img, &mut |n| {
+        dev.write_partition_sparse(start_sector, &mut source, &img, &mut |n| {
             written += n as u64;
             rep.progress(name, written, payload);
         })?;
@@ -282,9 +297,10 @@ fn write_partition_auto(
             ),
         })
     } else {
-        let total = data.len() as u64;
+        let mut source = image.open_item(item)?;
+        let total = item.original_length as u64;
         let mut written = 0u64;
-        dev.write_partition(start_sector, data, &mut |n| {
+        dev.write_partition_stream(start_sector, &mut source, total, &mut |n| {
             written += n as u64;
             rep.progress(name, written, total);
         })?;
@@ -605,26 +621,19 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
             let found = img
                 .find(&filename)
                 .with_context(|| format!("{filename} not found in image"))?;
-            let data = img.read_item(found)?;
+            let bytes = found.original_length as u64;
 
             let mut dev = efex::EfexDevice::open()?;
             dev.flash_set_on()?;
             let start = std::time::Instant::now();
-            rep.partition_begin(1, 1, &name, data.len() as u64);
-            let outcome = write_partition_auto(&mut dev, part.start_sector, &data, &name, rep)?;
+            rep.partition_begin(1, 1, &name, bytes);
+            let outcome =
+                write_partition_auto(&mut dev, &img, found, part.start_sector, &name, rep)?;
             let elapsed = start.elapsed();
-            let mb = data.len() as f64 / (1024.0 * 1024.0);
-            rep.partition_end(
-                1,
-                1,
-                &name,
-                data.len() as u64,
-                outcome.format,
-                elapsed.as_secs_f64(),
-            );
+            let mb = bytes as f64 / (1024.0 * 1024.0);
+            rep.partition_end(1, 1, &name, bytes, outcome.format, elapsed.as_secs_f64());
             rep.prose(format!(
-                "wrote partition '{name}' ({} bytes from {filename}, {}) at sector 0x{:x} in {:.1}s ({:.2} MB/s)",
-                data.len(),
+                "wrote partition '{name}' ({bytes} bytes from {filename}, {}) at sector 0x{:x} in {:.1}s ({:.2} MB/s)",
                 outcome.detail,
                 part.start_sector,
                 elapsed.as_secs_f64(),
@@ -676,16 +685,18 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                 .find(&boot0_item)
                 .with_context(|| format!("{boot0_item} not found"))?;
 
-            // Resolve all partition payloads up front so we fail fast (missing
-            // file, bad sys_partition.fex) before touching the device at all.
-            // Collecting the `Item`s first (just metadata — no read yet) lets us
-            // size the "loading image" progress below without reading twice.
-            struct PendingJob<'a> {
+            // Resolve every job up front so we fail fast (missing file, bad
+            // sys_partition.fex) before touching the device at all — but only
+            // the `Item` metadata (offset/length, already known from the item
+            // table), not the payload bytes themselves. Those get streamed
+            // straight off disk during the write loop below, so there's no
+            // separate "load the image" pass (and no multi-GB buffer) at all.
+            struct Job<'a> {
                 name: String,
                 start_sector: u64,
                 item: &'a imagewty::Item,
             }
-            let mut pending = Vec::new();
+            let mut jobs = Vec::new();
             for p in &sp.partitions {
                 let Some(filename) = &p.downloadfile else { continue };
                 if !selection.includes(&p.name) {
@@ -702,52 +713,21 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                     ));
                     continue;
                 }
-                pending.push(PendingJob { name: p.name.clone(), start_sector: p.start_sector, item });
-            }
-
-            // The reads below are synchronous and can take a while on a large
-            // image or a slow/network drive, with nothing else to show for it —
-            // report progress so a front-end isn't just sitting on a frozen bar.
-            let load_total: u64 = mbr_item.original_length as u64
-                + boot1_item.original_length as u64
-                + boot0_item_ref.original_length as u64
-                + pending.iter().map(|j| j.item.original_length as u64).sum::<u64>();
-            rep.step(
-                "loading_image",
-                format!("reading {} MB from the image...", load_total / (1024 * 1024)),
-            );
-            let mut loaded: u64 = 0;
-            let mut load = |label: &str, item: &imagewty::Item| -> Result<Vec<u8>> {
-                let data = img.read_item(item)?;
-                loaded += data.len() as u64;
-                rep.log(format!(
-                    "loaded {label} ({} / {} MB)",
-                    loaded / (1024 * 1024),
-                    load_total / (1024 * 1024)
-                ));
-                Ok(data)
-            };
-
-            let mbr_data = load("MBR", mbr_item)?;
-            let boot1_data = load("BOOT1", boot1_item)?;
-            let boot0_data = load("BOOT0", boot0_item_ref)?;
-
-            struct Job {
-                name: String,
-                start_sector: u64,
-                data: Vec<u8>,
-            }
-            let mut jobs = Vec::new();
-            for p in pending {
-                let data = load(&p.name, p.item)?;
-                jobs.push(Job { name: p.name, start_sector: p.start_sector, data });
+                jobs.push(Job { name: p.name.clone(), start_sector: p.start_sector, item });
             }
 
             if jobs.is_empty() {
                 bail!("nothing selected to write");
             }
 
-            let total_bytes: u64 = jobs.iter().map(|j| j.data.len() as u64).sum();
+            // MBR/BOOT1/BOOT0 are small (at most a few MB) next to the
+            // partitions, so reading them fully up front is cheap and keeps
+            // the write loop below simple.
+            let mbr_data = img.read_item(mbr_item)?;
+            let boot1_data = img.read_item(boot1_item)?;
+            let boot0_data = img.read_item(boot0_item_ref)?;
+
+            let total_bytes: u64 = jobs.iter().map(|j| j.item.original_length as u64).sum();
             let names: Vec<&str> = jobs.iter().map(|j| j.name.as_str()).collect();
             rep.plan(
                 &names,
@@ -774,17 +754,23 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
 
             for (i, job) in jobs.iter().enumerate() {
                 let index = i + 1;
-                let bytes = job.data.len() as u64;
+                let bytes = job.item.original_length as u64;
                 rep.partition_begin(index, jobs.len(), &job.name, bytes);
                 let started = std::time::Instant::now();
-                let outcome =
-                    write_partition_auto(&mut dev, job.start_sector, &job.data, &job.name, rep)
-                        .with_context(|| {
-                            format!(
-                                "writing partition '{}' at sector 0x{:x}",
-                                job.name, job.start_sector
-                            )
-                        })?;
+                let outcome = write_partition_auto(
+                    &mut dev,
+                    &img,
+                    job.item,
+                    job.start_sector,
+                    &job.name,
+                    rep,
+                )
+                .with_context(|| {
+                    format!(
+                        "writing partition '{}' at sector 0x{:x}",
+                        job.name, job.start_sector
+                    )
+                })?;
                 rep.partition_end(
                     index,
                     jobs.len(),

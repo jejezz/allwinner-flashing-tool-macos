@@ -105,12 +105,26 @@ Error: Allwinner USB FEL device (1f3a:efe8) not found
 That exact error means this, every time. The fix:
 
 1. Keep the board connected in FEL (or EFEX) mode.
-2. Run [Zadig](https://zadig.akeo.ie/) (no admin rights needed — confirmed on real hardware).
+2. Run [Zadig](https://zadig.akeo.ie/). Binding a *fresh* device with no driver at all needs no admin rights (confirmed on real hardware) — but *replacing* a driver that's already installed (see "a previously-installed vendor driver" below) does, since that's an OS-level driver-store change. If Zadig looks like it's not doing anything, relaunch it as Administrator.
 3. Turn on **Options → List All Devices**. Without it, a device that already has a driver bound (the default one, in this case) won't show up in the list.
 4. Find the device by VID `1f3a` / PID `efe8`, set the target driver to **WinUSB**, and click **Replace Driver**.
 5. Check Device Manager again — the device should have moved under "Universal Serial Bus devices".
 
 Once bound, it's recognised automatically after that, including across reboots. No need to redo it unless the board re-enumerates under a different VID/PID.
+
+### A previously-installed vendor driver (e.g. PhoenixSuit)
+
+If PhoenixSuit or another Allwinner flashing tool was ever installed on the machine, it very likely installed its own driver for `1f3a:efe8` (commonly `USBDrv.sys`/`USBDrv_AMD64.sys`). Windows can silently re-pick that driver over WinUSB whenever the board re-enumerates — in particular the FEL→EFEX transition mid-bootstrap, which is a fresh USB enumeration event. Symptom: `aw-tool` finds the board fine in FEL (fes1/u-boot upload succeeds), then times out waiting for EFEX, even though Device Manager still shows the device as present and "fine".
+
+To check: Device Manager → right-click the device → **Properties → Driver → Driver Details**. If the file isn't `winusb.sys`, that's the cause.
+
+To fix it for good:
+
+1. Device Manager → right-click the device → **Uninstall device** → check **"Delete the driver software for this device"** → Uninstall (needs Administrator).
+2. Unplug the board, reconnect in FEL mode, and bind it to WinUSB again with Zadig (as Administrator).
+3. Retry. With the competing driver gone from the driver store, Windows has nothing else to fall back to on the next re-enumeration.
+
+Note PhoenixSuit itself won't work again on this machine until its driver is reinstalled.
 
 **Linux** — a udev rule grants access without root.
 

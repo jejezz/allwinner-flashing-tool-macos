@@ -63,14 +63,37 @@ FEL/EFEX 프로토콜은 Rust(`aw-tool`, libusb 사용)로 직접 구현했고, 
 
 Flutter 앱은 `gui/`에, Rust CLI는 저장소 루트에 있습니다. 저장소에서 실행하면 앱이 `target/release/aw-tool`을 알아서 찾습니다.
 
+### 1. Rust 설치
+
+```bash
+# macOS/Linux
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Windows
+winget install Rustlang.Rustup
+```
+
+Windows에서는 Visual Studio Build Tools의 **"C++를 사용한 데스크톱 개발"** 워크로드도 필요합니다 — Rust MSVC 타겟과 libusb 소스 빌드에 쓰이는 `cl.exe`를 제공합니다. [rustup](https://rustup.rs)이 `~/.cargo/bin`(Windows는 `%USERPROFILE%\.cargo\bin`)을 `PATH`에 자동으로 추가하는데, 설치 후 **터미널을 새로 열어야** 반영됩니다 — `cargo --version`으로 확인하세요.
+
+### 2. 빌드·실행
+
 ```bash
 cargo build --release
 cd gui
 flutter pub get
-flutter run -d macos
+flutter run -d macos   # 또는 -d windows / -d linux
 ```
 
-Rust 툴체인과 libusb가 필요합니다 (macOS는 `brew install libusb`, Windows는 `--features vendored`로 소스에서 빌드). CLI 사용법, 플랫폼별 빌드 스크립트, USB 드라이버 설정, 실기 검증 현황, 소스 구성은 [docs/aw-tool.md](docs/aw-tool.md)에 있습니다. 릴리스 CI: [docs/release-ci.md](docs/release-ci.md).
+libusb도 필요합니다 (macOS는 `brew install libusb`, Windows는 `--features vendored`로 소스에서 자동 빌드되므로 별도 설치가 필요 없습니다). CLI 사용법, 플랫폼별 빌드 스크립트, 실기 검증 현황, 소스 구성은 [docs/aw-tool.md](docs/aw-tool.md)에 있습니다. 릴리스 CI: [docs/release-ci.md](docs/release-ci.md).
+
+### 3. Windows: 보드를 WinUSB로 바인딩
+
+보드는 FEL·EFEX 모두 `1f3a:efe8`로 열거됩니다. 장치 관리자에 정상적인 장치로 보여도, 그 인터페이스가 **WinUSB**에 바인딩돼 있지 않으면 앱이 아예 열지 못합니다 — [Zadig](https://zadig.akeo.ie/)로 바인딩하는 정확한 순서는 [USB 드라이버](docs/aw-tool.md#usb-드라이버)를 참고하세요. 드라이버가 아예 없는 **새 장치**를 바인딩하는 건 관리자 권한이 필요 없지만, **이미 설치된 드라이버를 교체**하는 건 관리자 권한이 필요합니다 — 장치에 이미 드라이버가 붙어 있다면 Zadig을 관리자 권한으로 실행하세요.
+
+### 4. Windows: 충돌하는 벤더 드라이버 제거
+
+이 PC에 PhoenixSuit 등 다른 Allwinner 툴을 설치한 적이 있다면, `1f3a:efe8`용 자체 드라이버가 이미 깔려 있을 수 있습니다. Windows는 보드가 재열거될 때마다(특히 플래싱 중 FEL→EFEX로 넘어가는 순간) WinUSB 대신 그 드라이버를 조용히 다시 골라버릴 수 있는데, 그러면 앱이 FEL은 잘 찾는데 EFEX를 기다리다 타임아웃되는 증상으로 나타납니다 — 그동안 장치 관리자에는 계속 정상으로 보입니다. **장치 관리자 → 장치 → 속성 → 드라이버 → 드라이버 세부 정보**에서 파일명이 `winusb.sys`가 아니면 이게 원인입니다.
+
+해결: 장치 관리자 → 장치 → **디바이스 제거** → **"이 장치의 드라이버 소프트웨어를 삭제합니다"** 체크(관리자 권한 필요) → 보드를 FEL 모드로 다시 연결 → Zadig으로 WinUSB 재바인딩. 자세한 내용: [USB 드라이버 — 기존에 설치된 벤더 드라이버](docs/aw-tool.md#usb-드라이버).
 
 릴리스: `scripts/bump-version.sh patch` → 병합 → `vX.Y.Z` 태그. CI가 모든 플랫폼을 빌드해서 올립니다. 규칙: [application-release-templates/conventions](https://github.com/jejezz/application-release-templates/tree/main/conventions).
 

@@ -61,16 +61,39 @@ The FEL/EFEX protocol is implemented from scratch in Rust (`aw-tool`, on libusb)
 
 ## Development
 
-The Flutter app lives in `gui/`, the Rust CLI at the repository root. The app finds `target/release/aw-tool` on its own when run from the checkout:
+The Flutter app lives in `gui/`, the Rust CLI at the repository root. The app finds `target/release/aw-tool` on its own when run from the checkout.
+
+### 1. Install Rust
+
+```bash
+# macOS/Linux
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Windows
+winget install Rustlang.Rustup
+```
+
+On Windows this also needs Visual Studio Build Tools' **"Desktop development with C++"** workload — it provides `cl.exe`, required by both the Rust MSVC target and building libusb from source. [rustup](https://rustup.rs) adds `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on Windows) to `PATH`; **open a new terminal** after installing, then confirm with `cargo --version`.
+
+### 2. Build and run
 
 ```bash
 cargo build --release
 cd gui
 flutter pub get
-flutter run -d macos
+flutter run -d macos   # or -d windows / -d linux
 ```
 
-Needs a Rust toolchain and libusb (`brew install libusb` on macOS; Windows builds it with `--features vendored`). CLI usage, platform build scripts, the USB driver setup, what has been verified on hardware and the source layout: [docs/aw-tool.en.md](docs/aw-tool.en.md). Release CI: [docs/release-ci.md](docs/release-ci.md).
+Needs libusb too (`brew install libusb` on macOS; Windows builds it from source with `--features vendored`, nothing to install separately). CLI usage, platform build scripts, what has been verified on hardware and the source layout: [docs/aw-tool.en.md](docs/aw-tool.en.md). Release CI: [docs/release-ci.md](docs/release-ci.md).
+
+### 3. Windows: bind the board to WinUSB
+
+The board enumerates as `1f3a:efe8` for both FEL and EFEX. Even when Device Manager shows it as a normal, recognized device, the app can't open it unless that interface is bound to **WinUSB** with [Zadig](https://zadig.akeo.ie/) — see [USB driver](docs/aw-tool.en.md#usb-driver) for the exact steps. Binding a *fresh* device (no driver yet) needs no admin rights; **replacing an already-installed driver does** — run Zadig as Administrator if the device already shows one.
+
+### 4. Windows: remove a conflicting vendor driver
+
+If PhoenixSuit or another Allwinner tool was ever installed on the machine, it likely installed its own driver for `1f3a:efe8`. Windows can silently re-pick that driver over WinUSB whenever the board re-enumerates (notably the FEL→EFEX transition mid-flash), which shows up as the app finding the board in FEL but then timing out waiting for EFEX — Device Manager still looks fine the whole time. Check **Device Manager → the device → Properties → Driver → Driver Details**: if it's not `winusb.sys`, that's it.
+
+Fix: Device Manager → the device → **Uninstall device** → check **"Delete the driver software for this device"** (needs Administrator) → reconnect the board in FEL mode → bind WinUSB again with Zadig. Full write-up: [USB driver — a previously-installed vendor driver](docs/aw-tool.en.md#usb-driver).
 
 Releasing: `scripts/bump-version.sh patch`, merge, then tag `vX.Y.Z` — CI builds and publishes every platform. Rules: [application-release-templates/conventions](https://github.com/jejezz/application-release-templates/tree/main/conventions).
 

@@ -928,11 +928,17 @@ class _ProgressCard extends StatelessWidget {
             const SizedBox(height: 2),
             Text(l10n.progressPreparingHint, style: theme.textTheme.labelSmall),
           ],
-          const SizedBox(height: 12),
-          GlassProgressBar(
-            value: preparing ? null : model.overallProgress,
-            color: AppColors.accent,
-          ),
+          // Most-specific first, most-general last: the current partition's
+          // own bar sits right under its name, the overall total — the big
+          // picture, not what's happening this instant — anchors the bottom.
+          if (current != null) ...[
+            const SizedBox(height: 12),
+            GlassProgressBar(
+              value: model.partitionProgress,
+              color: AppColors.primary,
+              height: 4,
+            ),
+          ],
           if (!preparing) ...[
             const SizedBox(height: 8),
             Row(
@@ -954,14 +960,11 @@ class _ProgressCard extends StatelessWidget {
               ],
             ),
           ],
-          if (current != null) ...[
-            const SizedBox(height: 6),
-            GlassProgressBar(
-              value: model.partitionProgress,
-              color: AppColors.primary,
-              height: 4,
-            ),
-          ],
+          const SizedBox(height: 12),
+          GlassProgressBar(
+            value: preparing ? null : model.overallProgress,
+            color: AppColors.accent,
+          ),
         ],
       ),
     );

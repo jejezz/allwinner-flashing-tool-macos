@@ -36,6 +36,11 @@ class ThemeMenuButton extends StatelessWidget {
     return PopupMenuButton<ThemeMode>(
       tooltip: l10n.themeMenuTooltip,
       icon: Icon(_themeIcon(settings.themeMode)),
+      // PopupMenuButton builds its own internal IconButton, which reads
+      // iconSize/PopupMenuThemeData directly and never sees the header's
+      // IconButtonTheme — without this it falls back to the ambient
+      // IconTheme (24) and looks bigger than the plain IconButtons (20).
+      iconSize: 20,
       initialValue: settings.themeMode,
       onSelected: settings.setThemeMode,
       itemBuilder: (_) => [
@@ -62,6 +67,7 @@ class LanguageMenuButton extends StatelessWidget {
     return PopupMenuButton<String>(
       tooltip: l10n.languageMenuTooltip,
       icon: const Icon(Icons.language_rounded),
+      iconSize: 20,
       initialValue: current,
       onSelected: (code) => settings.setLocale(code.isEmpty ? null : Locale(code)),
       itemBuilder: (_) => [

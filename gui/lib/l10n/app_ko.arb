@@ -76,6 +76,7 @@
   "partitionsEmpty": "이미지를 선택하면 표시됩니다",
   "partitionKeep": "유지",
   "selectAll": "전체 선택",
+  "deselectAll": "전체 해제",
   "logTitle": "로그",
   "logEmpty": "아직 기록이 없습니다",
   "stepsTitle": "순서",

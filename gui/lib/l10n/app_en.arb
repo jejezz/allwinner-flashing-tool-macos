@@ -38,6 +38,7 @@
   "partitionsEmpty": "Shown once an image is selected",
   "partitionKeep": "keep",
   "selectAll": "Select all",
+  "deselectAll": "Deselect all",
   "logTitle": "Log",
   "logEmpty": "Nothing logged yet",
   "stepsTitle": "Steps",

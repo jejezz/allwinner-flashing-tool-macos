@@ -52,8 +52,9 @@ class FlasherModel extends ChangeNotifier {
   bool isSelected(String name) => fullFormat || !_keep.contains(name);
 
   /// Partitions that have something to write and are checked.
-  int get selectedCount =>
-      partitions.where((p) => p.downloadFile != null && isSelected(p.name)).length;
+  int get selectedCount => partitions
+      .where((p) => p.downloadFile != null && isSelected(p.name))
+      .length;
 
   bool get hasDeselection => selectionEnabled && _keep.isNotEmpty;
 
@@ -61,9 +62,9 @@ class FlasherModel extends ChangeNotifier {
   /// order — what the confirmation dialog promises to leave alone.
   List<String> get keptNames => selectionEnabled
       ? partitions
-          .where((p) => p.downloadFile != null && _keep.contains(p.name))
-          .map((p) => p.name)
-          .toList()
+            .where((p) => p.downloadFile != null && _keep.contains(p.name))
+            .map((p) => p.name)
+            .toList()
       : const [];
 
   void toggle(String name) {
@@ -74,6 +75,20 @@ class FlasherModel extends ChangeNotifier {
 
   void selectAll() {
     _keep.clear();
+    notifyListeners();
+  }
+
+  /// Every partition with something to write is checked.
+  bool get allSelected =>
+      partitions.every((p) => p.downloadFile == null || isSelected(p.name));
+
+  /// Uncheck everything, so a single partition can then be ticked on its own.
+  void deselectAll() {
+    _keep
+      ..clear()
+      ..addAll(
+        partitions.where((p) => p.downloadFile != null).map((p) => p.name),
+      );
     notifyListeners();
   }
 
@@ -224,7 +239,8 @@ class FlasherModel extends ChangeNotifier {
     final err = events.where((e) => e.event == 'error').firstOrNull;
     if (err != null) {
       throw Exception(
-        _l10n?.failedStep(what, err.message ?? '') ?? '$what failed: ${err.message}',
+        _l10n?.failedStep(what, err.message ?? '') ??
+            '$what failed: ${err.message}',
       );
     }
   }
@@ -255,7 +271,10 @@ class FlasherModel extends ChangeNotifier {
         '--erase-flag',
         fullFormat ? '1' : '0',
         if (rebootWhenDone) '--reboot',
-        if (selectionEnabled && keeping.isNotEmpty) ...['--skip', keeping.join(',')],
+        if (selectionEnabled && keeping.isNotEmpty) ...[
+          '--skip',
+          keeping.join(','),
+        ],
       ]);
       _run = run;
 
@@ -272,7 +291,7 @@ class FlasherModel extends ChangeNotifier {
         errorMessage ??= code == 0
             ? _l10n?.errorNoResult ?? 'Flashing exited without a result.'
             : _l10n?.errorInterrupted(code) ??
-                'Flashing was interrupted (exit code $code).';
+                  'Flashing was interrupted (exit code $code).';
       }
     } catch (e) {
       phase = Phase.failed;
@@ -396,7 +415,8 @@ class FlasherModel extends ChangeNotifier {
         // an aw-tool built before card fusing existed. Saying "no disks found"
         // there would send the user looking at their card reader instead.
         if (data == null) {
-          sdCardError = _l10n?.sdCardToolOutdated ??
+          sdCardError =
+              _l10n?.sdCardToolOutdated ??
               'This aw-tool does not support listing disks. Rebuild it.';
         }
       }
@@ -442,8 +462,8 @@ class FlasherModel extends ChangeNotifier {
         sdCardError ??= code == 0
             ? _l10n?.errorNoResult ?? 'Writing exited without a result.'
             : run.stderrText.trim().isNotEmpty
-                ? run.stderrText.trim()
-                : 'exit code $code';
+            ? run.stderrText.trim()
+            : 'exit code $code';
       }
     } catch (e) {
       sdCardPhase = SdCardPhase.failed;

@@ -13,12 +13,12 @@ void main() {
   }
 
   FlasherModel standard() => modelWith([
-        {'name': 'bootloader_a', 'start_sector': 32768, 'downloadfile': 'b.fex'},
-        {'name': 'env', 'start_sector': 40000, 'downloadfile': 'env.fex'},
-        {'name': 'super', 'start_sector': 65536, 'downloadfile': 'super.fex'},
-        // No downloadfile: nothing to write, so nothing to choose.
-        {'name': 'reserved', 'start_sector': 90000},
-      ]);
+    {'name': 'bootloader_a', 'start_sector': 32768, 'downloadfile': 'b.fex'},
+    {'name': 'env', 'start_sector': 40000, 'downloadfile': 'env.fex'},
+    {'name': 'super', 'start_sector': 65536, 'downloadfile': 'super.fex'},
+    // No downloadfile: nothing to write, so nothing to choose.
+    {'name': 'reserved', 'start_sector': 90000},
+  ]);
 
   test('everything is selected by default', () {
     final m = standard()..fullFormat = false;
@@ -92,4 +92,28 @@ void main() {
     // this test is pinning.
     expect(m.canFlash, isFalse);
   });
+
+  test(
+    'deselectAll unchecks every writable partition, then one can be ticked',
+    () {
+      final m = standard()..fullFormat = false;
+      expect(m.allSelected, isTrue);
+
+      m.deselectAll();
+      expect(m.allSelected, isFalse);
+      expect(m.selectedCount, 0);
+
+      m.toggle('super');
+      expect(m.selectedCount, 1);
+      expect(m.isSelected('super'), isTrue);
+      expect(
+        m.allSelected,
+        isFalse,
+        reason: 'partial selection offers select-all',
+      );
+
+      m.selectAll();
+      expect(m.allSelected, isTrue);
+    },
+  );
 }

@@ -1089,10 +1089,16 @@ class _PartitionCard extends StatelessWidget {
                   : model.selectionEnabled
                       ? l10n.partitionsSelectable(model.selectedCount)
                       : l10n.partitionsFullFormat,
-              trailing: model.hasDeselection
+              trailing: model.selectionEnabled
                   ? TextButton(
-                      onPressed: model.busy ? null : model.selectAll,
-                      child: Text(l10n.selectAll),
+                      onPressed: model.busy
+                          ? null
+                          : model.allSelected
+                              ? model.deselectAll
+                              : model.selectAll,
+                      child: Text(
+                        model.allSelected ? l10n.deselectAll : l10n.selectAll,
+                      ),
                     )
                   : null,
             ),

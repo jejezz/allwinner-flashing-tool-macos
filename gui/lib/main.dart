@@ -6,6 +6,7 @@ import 'package:cross_file/cross_file.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'about/allwinner_about.dart';
@@ -39,19 +40,23 @@ Future<void> main() async {
   // The layout stacks a device card, the partition table, options, progress
   // and a log pane; anything much shorter clips the log to a couple of lines.
   const windowSize = Size(900, 650);
-  // 시작 위치는 center: true 대신 placeWindowAtStartup — 모니터마다 배율이 다른
-  // Windows 듀얼 모니터에서 center: true가 창을 화면 밖에 놓는다.
-  const options = WindowOptions(
+  // 시작 위치는 WindowPlacement — 모니터마다 배율이 다른 Windows 듀얼
+  // 모니터에서 center: true/저장 좌표 복원이 창을 화면 밖에 놓는다.
+  WindowPlacement? placement;
+  if (WindowPlacement.enabled) {
+    placement = WindowPlacement(await SharedPreferences.getInstance(), defaultSize: windowSize);
+  }
+  final options = WindowOptions(
     size: windowSize,
-    minimumSize: Size(700, 540),
-    center: false,
+    minimumSize: const Size(700, 540),
+    center: placement == null,
     title: AppIdentity.displayName,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
-    await placeWindowAtStartup(windowSize);
+    await placement?.placeInitially();
+    placement?.attach();
     await windowManager.show();
     await windowManager.focus();
-    LastDisplaySaver().start();
   });
 
   final settings = await AppSettings.load();

@@ -1,5 +1,5 @@
-//! Card fusing: write boot0 + boot_package + firmware.img to a raw SD card at
-//! fixed LBAs, so the board's own u-boot installs the image into its eMMC when
+//! Card fusing: write boot0 + boot_package + sunxi partition table + firmware.img
+//! to a raw SD card at fixed LBAs, so the board's own u-boot installs the image into its eMMC when
 //! the card is inserted at power-on. No host/board protocol is involved.
 //!
 //! Layout and the source references behind it: docs/sdcard-fusing-조사.md.
@@ -23,7 +23,7 @@ mod verify;
 use relay::{ReadSeek, Target, WorkerHost};
 use verify::RegionDigest;
 
-pub use verify::{card_boot0, check_card_boot0, check_toc1};
+pub use verify::{card_boot0, card_boot_package, check_card_boot0, check_toc1};
 
 #[cfg(windows)]
 mod windows;
@@ -56,7 +56,12 @@ mod platform {
 pub const BOOT0_LBA: u64 = 16;
 pub const BOOT_PACKAGE_BACKUP_LBA: u64 = 24576;
 pub const BOOT_PACKAGE_LBA: u64 = 32800;
-pub const FIRMWARE_LBA: u64 = 40960;
+/// The `card_boot` node's `logical_start`: the sunxi partition table (the
+/// image's `sunxi_mbr.fex`, 128 sectors) lives here.
+pub const MBR_LBA: u64 = 40960;
+/// The firmware image starts at the sector the partition table names for it
+/// (`img start = 0x18000` in the card sprite's log), not at `logical_start`.
+pub const FIRMWARE_LBA: u64 = 98304;
 
 /// Default ceiling for `--max-size-bytes`: above any real SD card in use, below
 /// the internal drives that are the usual wrong pick.
@@ -203,6 +208,22 @@ fn open_for_write(disk: &DiskInfo) -> Result<OpenDisk> {
     platform::open_for_write(disk)
 }
 
+/// The pieces of the image that go in front of the firmware, exactly as the
+/// image carries them. What each does to the card is decided where it is
+/// written: boot0 and the partition table go as they are, the boot_package goes
+/// twice — shipped in the backup slot, with the card work mode in the main one.
+pub struct Blobs {
+    pub boot0: Vec<u8>,
+    pub boot_package: Vec<u8>,
+    pub mbr: Vec<u8>,
+}
+
+impl Blobs {
+    fn lens(&self) -> (u64, u64, u64) {
+        (self.boot0.len() as u64, self.boot_package.len() as u64, self.mbr.len() as u64)
+    }
+}
+
 /// What the safety checks need beyond the disk itself, carried to the elevated
 /// writer so it can repeat them.
 pub struct FlashParams {
@@ -233,8 +254,7 @@ fn open_reader(disk: &DiskInfo) -> Result<Box<dyn ReadSeek>> {
 /// here, so network drives and the user's own session stay in play.
 pub fn flash(
     disk: &DiskInfo,
-    boot0: &[u8],
-    boot_package: &[u8],
+    blobs: &Blobs,
     image: &Path,
     firmware_len: u64,
     params: &FlashParams,
@@ -244,8 +264,7 @@ pub fn flash(
     if !platform::is_elevated() {
         return platform::flash_via_worker(
             disk,
-            boot0,
-            boot_package,
+            blobs,
             image,
             firmware_len,
             params,
@@ -256,7 +275,7 @@ pub fn flash(
         File::open(image).with_context(|| format!("opening {:?}", image))?;
     let mut target = open_target(disk)?;
     let written =
-        write_card_layout(&mut target.out, boot0, boot_package, &mut firmware, firmware_len, rep)?;
+        write_card_layout(&mut target.out, blobs, &mut firmware, firmware_len, rep)?;
     target.out.sync().context("flushing the card after writing")?;
     if params.verify {
         verify::verify_written(&mut open_reader(disk)?, &written, rep)?;
@@ -270,21 +289,24 @@ pub fn flash(
 /// an elevated worker.
 pub fn verify_card(
     disk: &DiskInfo,
-    expected: Option<(&[u8], &[u8], &Path, u64)>,
+    expected: Option<(&Blobs, &Path, u64)>,
     rep: &Reporter,
 ) -> Result<()> {
-    let lens = expected.map_or((0, 0, 0), |(b0, bp, _, fw)| (b0.len() as u64, bp.len() as u64, fw));
+    let lens = expected.map_or((0, 0, 0, 0), |(b, _, fw)| {
+        let (b0, bp, mbr) = b.lens();
+        (b0, bp, mbr, fw)
+    });
     #[cfg(windows)]
     if !platform::is_elevated() {
         return platform::verify_via_worker(disk, expected, lens, rep);
     }
     let digests = match expected {
-        Some((b0, bp, image, fw)) => Some(expected_digests(b0, bp, image, fw)?),
+        Some((blobs, image, fw)) => Some(expected_digests(blobs, image, fw)?),
         None => None,
     };
     let mut card = open_reader(disk)?;
     let mut actual = Vec::new();
-    for (name, lba, len) in verify::region_list(lens.0, lens.1, lens.2) {
+    for (name, lba, len) in verify::region_list(lens.0, lens.1, lens.2, lens.3) {
         actual.push(verify::digest_card(&mut card, name, lba, len, rep)?);
     }
     relay::judge(
@@ -297,21 +319,19 @@ pub fn verify_card(
 
 /// What a card written from this image should hold, region by region. Reads the
 /// whole image once.
-pub fn expected_digests(
-    boot0: &[u8],
-    boot_package: &[u8],
-    image: &Path,
-    firmware_len: u64,
-) -> Result<Vec<RegionDigest>> {
+pub fn expected_digests(blobs: &Blobs, image: &Path, firmware_len: u64) -> Result<Vec<RegionDigest>> {
     let mut firmware =
         File::open(image).with_context(|| format!("opening {:?}", image))?;
+    let main_package = card_boot_package(&blobs.boot_package)?;
+    let (b0, bp, mbr) = blobs.lens();
     let mut out = Vec::new();
-    for (name, lba, len) in verify::region_list(boot0.len() as u64, boot_package.len() as u64, firmware_len)
-    {
+    for (name, lba, len) in verify::region_list(b0, bp, mbr, firmware_len) {
         out.push(match name {
             "firmware" => verify::digest_source(name, lba, len, &mut firmware)?,
-            "boot0" => verify::digest_source(name, lba, len, &mut &boot0[..])?,
-            _ => verify::digest_source(name, lba, len, &mut &boot_package[..])?,
+            "boot0" => verify::digest_source(name, lba, len, &mut &blobs.boot0[..])?,
+            "sunxi_mbr" => verify::digest_source(name, lba, len, &mut &blobs.mbr[..])?,
+            "boot_package" => verify::digest_source(name, lba, len, &mut &main_package[..])?,
+            _ => verify::digest_source(name, lba, len, &mut &blobs.boot_package[..])?,
         });
     }
     Ok(out)
@@ -354,7 +374,7 @@ pub fn run_worker(port: u16, token: &str) -> Result<()> {
 
 /// The fixed LBAs leave a bounded window for each blob; one that overruns would
 /// silently overwrite its neighbour.
-pub fn validate_layout(boot0_len: u64, boot_package_len: u64) -> Result<()> {
+pub fn validate_layout(boot0_len: u64, boot_package_len: u64, mbr_len: u64) -> Result<()> {
     let sectors = |len: u64| len.div_ceil(SECTOR_SIZE);
     if BOOT0_LBA + sectors(boot0_len) > BOOT_PACKAGE_BACKUP_LBA {
         bail!("boot0 ({boot0_len} bytes) overruns the boot_package backup at LBA {BOOT_PACKAGE_BACKUP_LBA}");
@@ -363,8 +383,11 @@ pub fn validate_layout(boot0_len: u64, boot_package_len: u64) -> Result<()> {
     if BOOT_PACKAGE_BACKUP_LBA + bp > BOOT_PACKAGE_LBA {
         bail!("boot_package ({boot_package_len} bytes) overruns its backup slot");
     }
-    if BOOT_PACKAGE_LBA + bp > FIRMWARE_LBA {
-        bail!("boot_package ({boot_package_len} bytes) overruns the firmware start at LBA {FIRMWARE_LBA}");
+    if BOOT_PACKAGE_LBA + bp > MBR_LBA {
+        bail!("boot_package ({boot_package_len} bytes) overruns the partition table at LBA {MBR_LBA}");
+    }
+    if MBR_LBA + sectors(mbr_len) > FIRMWARE_LBA {
+        bail!("the partition table ({mbr_len} bytes) overruns the firmware start at LBA {FIRMWARE_LBA}");
     }
     Ok(())
 }
@@ -407,15 +430,16 @@ fn write_region<W: Write + Seek>(
 /// simply does not boot instead of one that boots into half an image.
 pub fn write_card_layout<W: Write + Seek>(
     out: &mut W,
-    boot0: &[u8],
-    boot_package: &[u8],
+    blobs: &Blobs,
     firmware: &mut dyn Read,
     firmware_len: u64,
     rep: &Reporter,
 ) -> Result<Vec<RegionDigest>> {
-    validate_layout(boot0.len() as u64, boot_package.len() as u64)?;
+    let (b0, bp, mbr) = blobs.lens();
+    validate_layout(b0, bp, mbr)?;
+    let main_package = card_boot_package(&blobs.boot_package)?;
 
-    let regions = verify::region_list(boot0.len() as u64, boot_package.len() as u64, firmware_len);
+    let regions = verify::region_list(b0, bp, mbr, firmware_len);
     rep.card_plan(&regions.map(|(name, _, bytes)| (name, bytes)));
 
     let mut written = Vec::new();
@@ -424,8 +448,10 @@ pub fn write_card_layout<W: Write + Seek>(
         let started = Instant::now();
         written.push(match *name {
             "firmware" => write_region(out, *lba, firmware, *bytes, name, rep)?,
-            "boot0" => write_region(out, *lba, &mut &boot0[..], *bytes, name, rep)?,
-            _ => write_region(out, *lba, &mut &boot_package[..], *bytes, name, rep)?,
+            "boot0" => write_region(out, *lba, &mut &blobs.boot0[..], *bytes, name, rep)?,
+            "sunxi_mbr" => write_region(out, *lba, &mut &blobs.mbr[..], *bytes, name, rep)?,
+            "boot_package" => write_region(out, *lba, &mut &main_package[..], *bytes, name, rep)?,
+            _ => write_region(out, *lba, &mut &blobs.boot_package[..], *bytes, name, rep)?,
         });
         let seconds = started.elapsed().as_secs_f64();
         rep.partition_end(i + 1, regions.len(), name, *bytes, "raw", seconds);
@@ -537,16 +563,17 @@ mod tests {
 
     #[test]
     fn layout_windows_are_enforced() {
-        assert!(validate_layout(69_632, 1_000_000).is_ok());
-        assert!(validate_layout((BOOT_PACKAGE_BACKUP_LBA - BOOT0_LBA) * 512 + 1, 1).is_err());
-        assert!(validate_layout(512, (BOOT_PACKAGE_LBA - BOOT_PACKAGE_BACKUP_LBA) * 512 + 1).is_err());
+        assert!(validate_layout(69_632, 1_000_000, 65_536).is_ok());
+        assert!(validate_layout((BOOT_PACKAGE_BACKUP_LBA - BOOT0_LBA) * 512 + 1, 1, 512).is_err());
+        assert!(validate_layout(512, (BOOT_PACKAGE_LBA - BOOT_PACKAGE_BACKUP_LBA) * 512 + 1, 512).is_err());
+        assert!(validate_layout(512, 512, (FIRMWARE_LBA - MBR_LBA) * 512 + 1).is_err());
     }
 
     #[test]
     fn required_bytes_rounds_firmware_up_to_a_sector() {
-        assert_eq!(required_bytes(0), 40960 * 512);
-        assert_eq!(required_bytes(1), 40960 * 512 + 512);
-        assert_eq!(required_bytes(1024), 40960 * 512 + 1024);
+        assert_eq!(required_bytes(0), 98304 * 512);
+        assert_eq!(required_bytes(1), 98304 * 512 + 512);
+        assert_eq!(required_bytes(1024), 98304 * 512 + 1024);
     }
 
     fn fake_boot0(len: usize) -> Vec<u8> {
@@ -562,26 +589,37 @@ mod tests {
         assert_eq!(crate::sunxi_head::WORK_MODE_CARD_PRODUCT, 0x11);
     }
 
+    fn blobs() -> Blobs {
+        let mut mbr = vec![0x33u8; 65_536];
+        mbr[8..16].copy_from_slice(b"softw411");
+        Blobs { boot0: fake_boot0(4096), boot_package: verify::tests::good_toc1(), mbr }
+    }
+
     #[test]
     fn layout_lands_at_the_fixed_lbas() {
-        let boot0 = fake_boot0(4096);
-        let mut bp = vec![0x5Au8; 3000]; // deliberately not sector-aligned
-        bp[..8].copy_from_slice(b"sunxi-pk");
+        let blobs = blobs();
+        let (boot0, bp, mbr) = (&blobs.boot0, &blobs.boot_package, &blobs.mbr);
         let mut fw = vec![0x77u8; 100_000];
         fw[..8].copy_from_slice(b"IMAGEWTY");
 
         let mut out = Cursor::new(Vec::new());
         let rep = Reporter::new(false);
-        write_card_layout(&mut out, &boot0, &bp, &mut &fw[..], fw.len() as u64, &rep).unwrap();
+        write_card_layout(&mut out, &blobs, &mut &fw[..], fw.len() as u64, &rep).unwrap();
         let disk = out.into_inner();
 
         let at = |lba: u64| (lba * SECTOR_SIZE) as usize;
         assert_eq!(&disk[at(BOOT0_LBA)..at(BOOT0_LBA) + boot0.len()], &boot0[..]);
-        assert_eq!(&disk[at(BOOT_PACKAGE_LBA)..at(BOOT_PACKAGE_LBA) + bp.len()], &bp[..]);
+        assert_eq!(&disk[at(MBR_LBA)..at(MBR_LBA) + mbr.len()], &mbr[..]);
+        // The backup slot holds the shipped package; the main slot is the same
+        // with the card work mode (and the two checksums that follow from it).
         assert_eq!(
             &disk[at(BOOT_PACKAGE_BACKUP_LBA)..at(BOOT_PACKAGE_BACKUP_LBA) + bp.len()],
             &bp[..]
         );
+        let main = &disk[at(BOOT_PACKAGE_LBA)..at(BOOT_PACKAGE_LBA) + bp.len()];
+        check_toc1(main).unwrap();
+        assert_eq!(verify::toc1_work_mode(main).unwrap(), crate::sunxi_head::WORK_MODE_CARD_PRODUCT);
+        assert_eq!(verify::toc1_work_mode(bp).unwrap(), 0);
         assert_eq!(&disk[at(FIRMWARE_LBA)..at(FIRMWARE_LBA) + fw.len()], &fw[..]);
         assert_eq!(&disk[at(FIRMWARE_LBA)..at(FIRMWARE_LBA) + 8], b"IMAGEWTY");
         assert_eq!(&disk[at(BOOT0_LBA) + 4..at(BOOT0_LBA) + 12], b"eGON.BT0");
@@ -595,23 +633,37 @@ mod tests {
     }
 
     #[test]
+    fn the_card_package_differs_from_the_shipped_one_in_three_words_only() {
+        let shipped = verify::tests::good_toc1();
+        let card = card_boot_package(&shipped).unwrap();
+        let differing: Vec<usize> = (0..shipped.len()).filter(|&i| shipped[i] != card[i]).collect();
+        // TOC1 checksum (20), u-boot header checksum (12) and work mode (224)
+        // inside the u-boot item; one byte each here since the deltas are small.
+        let uboot = 64 + 368;
+        assert_eq!(differing, vec![20, uboot + 12, uboot + 224]);
+    }
+
+    #[test]
     fn the_gaps_between_regions_are_left_alone() {
-        let boot0 = fake_boot0(4096);
-        let bp = vec![1u8; 4096];
+        let blobs = blobs();
+        let bp_len = blobs.boot_package.len().next_multiple_of(512);
         let fw = vec![2u8; 4096];
-        let mut out = Cursor::new(vec![0xEEu8; 41_000 * 512]);
+        let mut out = Cursor::new(vec![0xEEu8; 99_000 * 512]);
         let rep = Reporter::new(false);
-        write_card_layout(&mut out, &boot0, &bp, &mut &fw[..], fw.len() as u64, &rep).unwrap();
+        write_card_layout(&mut out, &blobs, &mut &fw[..], fw.len() as u64, &rep).unwrap();
         let disk = out.into_inner();
         let at = |lba: u64| (lba * SECTOR_SIZE) as usize;
-        // Before boot0, between boot0 and the backup, between backup and main.
+        // Before boot0, between boot0 and the backup, between backup and main,
+        // between the main package and the partition table, and after it.
         assert!(disk[..at(BOOT0_LBA)].iter().all(|&b| b == 0xEE));
         assert!(disk[at(BOOT0_LBA) + 4096..at(BOOT_PACKAGE_BACKUP_LBA)]
             .iter()
             .all(|&b| b == 0xEE));
-        assert!(disk[at(BOOT_PACKAGE_BACKUP_LBA) + 4096..at(BOOT_PACKAGE_LBA)]
+        assert!(disk[at(BOOT_PACKAGE_BACKUP_LBA) + bp_len..at(BOOT_PACKAGE_LBA)]
             .iter()
             .all(|&b| b == 0xEE));
+        assert!(disk[at(BOOT_PACKAGE_LBA) + bp_len..at(MBR_LBA)].iter().all(|&b| b == 0xEE));
+        assert!(disk[at(MBR_LBA) + blobs.mbr.len()..at(FIRMWARE_LBA)].iter().all(|&b| b == 0xEE));
     }
 }
 
@@ -632,8 +684,8 @@ mod real_image {
         let image = std::path::PathBuf::from(path);
         let img = crate::imagewty::ImageWty::open(&image).unwrap();
         let shipped = img.read_item(img.find("boot0_sdcard.fex").unwrap()).unwrap();
-        // The package goes on the card exactly as the image has it.
         let boot_package = img.read_item(img.find("boot_package.fex").unwrap()).unwrap();
+        let mbr = img.read_item(img.find("sunxi_mbr.fex").unwrap()).unwrap();
 
         verify::check_shipped_boot0(&shipped).expect("the SDK's boot0 should be internally consistent");
         check_toc1(&boot_package).expect("the SDK's boot_package should pass the TOC1 checks");
@@ -649,6 +701,7 @@ mod real_image {
             println!("boot0 is byte-identical to the vendor tool's");
         }
 
+        let blobs = Blobs { boot0: boot0.clone(), boot_package: boot_package.clone(), mbr };
         let firmware_len = std::fs::metadata(&image).unwrap().len();
         let tmp = std::env::temp_dir().join("aw_card_roundtrip.bin");
         let mut card = std::fs::OpenOptions::new()
@@ -661,17 +714,33 @@ mod real_image {
         let rep = Reporter::new(false);
         let mut firmware = File::open(&image).unwrap();
         let written =
-            write_card_layout(&mut card, &boot0, &boot_package, &mut firmware, firmware_len, &rep)
-                .unwrap();
+            write_card_layout(&mut card, &blobs, &mut firmware, firmware_len, &rep).unwrap();
         card.sync_all().unwrap();
         verify::verify_written(&mut card, &written, &rep).expect("the layout should read back clean");
 
+        // If a dump of a card the vendor tool wrote is at hand (from LBA 0),
+        // everything in front of the firmware must match it byte for byte:
+        // `AW_TEST_CARD_DUMP=<dump>` (the firmware itself sits beyond the dump).
+        if let Some(dump) = std::env::var_os("AW_TEST_CARD_DUMP") {
+            let theirs = std::fs::read(dump).unwrap();
+            let ours = std::fs::read(&tmp).unwrap();
+            let (b0, bp, mbr) = blobs.lens();
+            for (name, lba, len) in verify::region_list(b0, bp, mbr, 0) {
+                let (lo, hi) = ((lba * 512) as usize, (lba * 512 + len) as usize);
+                if hi > theirs.len() {
+                    continue;
+                }
+                assert_eq!(&ours[lo..hi], &theirs[lo..hi], "{name} differs from the vendor tool's card");
+                println!("{name}: identical to the vendor tool's card");
+            }
+        }
+
         // And the standalone path: digests of the image against the file.
-        let expected = expected_digests(&boot0, &boot_package, &image, firmware_len).unwrap();
+        let expected = expected_digests(&blobs, &image, firmware_len).unwrap();
+        let (b0, bp, mbr) = blobs.lens();
+        let regions = verify::region_list(b0, bp, mbr, firmware_len);
         let mut actual = Vec::new();
-        for (name, lba, len) in
-            verify::region_list(boot0.len() as u64, boot_package.len() as u64, firmware_len)
-        {
+        for (name, lba, len) in regions {
             actual.push(verify::digest_card(&mut card, name, lba, len, &rep).unwrap());
         }
         verify::compare(&expected, &actual).unwrap();
@@ -683,9 +752,7 @@ mod real_image {
         card.write_all(&[0xA5, 0x5A]).unwrap();
         card.sync_all().unwrap();
         let mut damaged = Vec::new();
-        for (name, lba, len) in
-            verify::region_list(boot0.len() as u64, boot_package.len() as u64, firmware_len)
-        {
+        for (name, lba, len) in regions {
             damaged.push(verify::digest_card(&mut card, name, lba, len, &rep).unwrap());
         }
         let err = verify::compare(&expected, &damaged).unwrap_err();

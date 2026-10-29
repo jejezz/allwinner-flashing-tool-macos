@@ -229,7 +229,17 @@ aw-tool flash-sdcard firmware.img '\\.\PhysicalDrive2'   # Windows
 sudo aw-tool flash-sdcard firmware.img /dev/disk4        # macOS
 ```
 
-기록 위치(512B 섹터): firmware.img 전체 → LBA 40960, boot_package(TOC1) → 32800과 백업 24576, boot0 → 16 — **셋 다 이미지 그대로, 패치 없이** 쓴다. `boot0_sdcard.fex`는 SDK 빌드 시점에 이미 카드부팅용 work_mode와 올바른 체크섬이 들어있다 (`docs/sdcard-fusing-조사.md` 0.6절 — 한때 offset 224의 work_mode를 패치하고 체크섬을 재계산했으나, 그 offset/체크섬 범위는 u-boot 헤더 기준으로 검증된 것이라 boot0에는 맞지 않았고, 패치한 카드는 BootROM이 거부해 eMMC로 조용히 넘어갔다). boot0를 **마지막**에 쓴다 — 도중에 끊기면 BootROM이 유효한 boot0를 못 찾아 카드가 "부팅되지 않는" 쪽으로 실패한다.
+기록 위치(512B 섹터), PhoenixCard가 쓴 카드와 대조한 배치:
+
+| 위치 | 내용 |
+|---|---|
+| LBA 16 | `boot0_sdcard.fex` — **이미지 그대로** |
+| LBA 24576 | `boot_package.fex` 백업 — 이미지 그대로 |
+| LBA 32800 | `boot_package.fex` 본체 — **u-boot의 work mode만 `0x11`로** (아래) |
+| LBA 40960 | `sunxi_mbr.fex`(128섹터, sunxi 파티션 테이블) — 이미지 그대로 |
+| LBA 98304 | firmware.img 전체 (`img start = 0x18000`, 카드 sprite 로그 기준) |
+
+카드부팅 모드는 boot0가 아니라 **u-boot가 정한다.** PhoenixCard는 본체 boot_package 안의 u-boot 헤더 offset 224를 `0x11`로 바꾸고, u-boot 헤더 체크섬(+0x11)과 TOC1 헤더 체크섬(+0x22)을 같은 만큼 옮긴다 — 카드와 4바이트만 다르다. 이 값이 없으면 보드는 SD카드에서 부팅은 하지만 `workmode = 0`으로 일반 부팅을 해 버린다. boot0를 패치하면 안 된다: 한때 boot0의 offset 224와 체크섬(길이 필드를 잘못 읽어 앞 48바이트만 합산)을 고쳐 썼으나, BootROM이 그 boot0를 거부해 카드를 무시하고 eMMC로 넘어갔다 (`docs/sdcard-fusing-조사.md` 0.6절). boot0를 **마지막**에 쓴다 — 도중에 끊기면 BootROM이 유효한 boot0를 못 찾아 카드가 "부팅되지 않는" 쪽으로 실패한다.
 
 ### 카드를 보드 없이 검증하기
 
@@ -242,21 +252,22 @@ aw-tool verify-sdcard '\\.\PhysicalDrive2'                        # 이미지 �
 
 | 검사 | 내용 |
 |---|---|
-| 내용 대조 | 네 영역(boot0, boot_package×2, firmware)을 읽어 이미지에서 기대되는 값과 비교 |
-| boot0 | `eGON.BT0` 헤더, 헤더 체크섬, 카드 work mode(`0x11`) |
-| boot_package | TOC1 매직·`valid_len` 체크섬·항목 범위, 안의 u-boot 헤더 체크섬 |
+| 내용 대조 | 다섯 영역(boot0, boot_package×2, 파티션 테이블, firmware)을 읽어 이미지에서 기대되는 값과 비교 |
+| boot0 | `eGON.BT0` 헤더, 체크섬 |
+| boot_package | TOC1 매직·`valid_len` 체크섬·항목 범위, 안의 u-boot 헤더 체크섬, **본체의 u-boot work mode가 `0x11`** |
+| 파티션 테이블 | `softw411` 매직 |
 | firmware | IMAGEWTY 헤더 |
 
 **이것으로 알 수 있는 것**: 카드가 방금 쓴 내용을 실제로 가지고 있는지, 그 내용이 보드가 거부하지 않을 형태인지. **알 수 없는 것**: 보드의 펌웨어가 그 카드로 실제로 설치를 끝내는지 — 그건 보드가 있어야 한다.
 
 ### 실물과 대조한 것
 
-PhoenixCard로 구운 실제 카드를 읽기 전용으로 덤프해 SDK 이미지의 항목과 비교했다.
+PhoenixCard로 구운 실제 카드와 이 도구로 구운 카드를 같은 이미지로 앞쪽 80000섹터씩 덤프해 섹터 단위로 비교했다 (구현한 레이아웃은 `AW_TEST_IMAGE=<img> AW_TEST_CARD_DUMP=<dump> cargo test real_image -- --ignored`로 그 덤프와 대조된다).
 
-- `boot_package`(LBA 32800·24576)는 이미지와 **0바이트 차이** — PhoenixCard는 수정 없이 복사한다.
-- boot0는 **8바이트**만 다르다: offset 224가 `0xff030b08` → `0x11`, 체크섬(offset 12).
-- 그 체크섬은 boot0 **앞 48바이트**(헤더)만 합산한 값이다. SDK가 만든 원본 boot0의 체크섬은 전체 61440바이트 합이라 서로 다르다. BootROM이 어느 쪽을 보는지는 소스(미공개 라이브러리)로 확정하지 못했고, 우리는 **현장에서 쓰이는 PhoenixCard의 출력과 같게** 만든다. 구현한 boot0는 그 카드의 boot0와 바이트 단위로 같다.
-- boot0 헤더의 길이 필드는 **offset 16**이고, u-boot 헤더는 offset 20이다. 두 헤더를 같은 오프셋으로 다루면 체크섬이 틀어진다.
+- boot0(LBA 16)와 `sunxi_mbr.fex`(LBA 40960)는 이미지와 **0바이트 차이**.
+- 백업 boot_package(LBA 24576)도 이미지 그대로. 본체(LBA 32800)만 위 4바이트가 다르다.
+- boot0 헤더의 길이 필드는 **offset 16**이고 u-boot 헤더는 offset 20이다.
+- 이 도구의 옛 버전은 LBA 40960에 firmware를 써서 파티션 테이블 자리를 덮었다. firmware 위치(LBA 98304)는 PhoenixCard 카드의 u-boot 로그(`img start = 0x18000`)로 확인했다.
 
 디스크를 잘못 고르면 호스트 PC의 데이터를 잃으므로 쓰기 전에 거부 규칙을 적용한다.
 

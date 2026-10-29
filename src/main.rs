@@ -771,19 +771,30 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                 img.find(&boot_package_item)
                     .with_context(|| format!("{boot_package_item} not found in image"))?,
             )?;
-            // What PhoenixCard writes: boot0 and boot_package exactly as the
-            // image has them, unpatched.
-            let boot0 = sdcard::card_boot0(&boot0_raw)?;
-            let boot_package = boot_package_raw;
+            // What PhoenixCard writes: boot0 and the partition table as the image
+            // has them, the boot_package with the card work mode in its main slot.
+            let mbr = img.read_item(
+                img.find("sunxi_mbr.fex")
+                    .context("sunxi_mbr.fex not found in image")?,
+            )?;
+            let blobs = sdcard::Blobs {
+                boot0: sdcard::card_boot0(&boot0_raw)?,
+                boot_package: boot_package_raw,
+                mbr,
+            };
             let firmware_len = std::fs::metadata(&image)
                 .with_context(|| format!("reading {:?}", image))?
                 .len();
-            sdcard::validate_layout(boot0.len() as u64, boot_package.len() as u64)?;
+            sdcard::validate_layout(
+                blobs.boot0.len() as u64,
+                blobs.boot_package.len() as u64,
+                blobs.mbr.len() as u64,
+            )?;
             // The board's BootROM and u-boot refuse a boot0 or boot_package that
             // fails these; better to learn it here than from a dead card.
-            sdcard::check_card_boot0(&boot0)
+            sdcard::check_card_boot0(&blobs.boot0)
                 .context("the card's boot0 would not pass the BootROM checks")?;
-            sdcard::check_toc1(&boot_package)
+            sdcard::check_toc1(&blobs.boot_package)
                 .context("this image's boot_package would not pass the u-boot checks")?;
             rep.step("image_ok", "boot0 and boot_package pass the boot-chain header checks");
 
@@ -810,8 +821,7 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
 
             sdcard::flash(
                 target,
-                &boot0,
-                &boot_package,
+                &blobs,
                 &image,
                 firmware_len,
                 &sdcard::FlashParams {
@@ -853,15 +863,19 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                         img.find(&boot_package_item)
                             .with_context(|| format!("{boot_package_item} not found in image"))?,
                     )?;
-                    let boot0 = sdcard::card_boot0(&boot0_raw)?;
+                    let mbr = img.read_item(
+                        img.find("sunxi_mbr.fex")
+                            .context("sunxi_mbr.fex not found in image")?,
+                    )?;
+                    let blobs = sdcard::Blobs {
+                        boot0: sdcard::card_boot0(&boot0_raw)?,
+                        boot_package,
+                        mbr,
+                    };
                     let firmware_len = std::fs::metadata(&image)
                         .with_context(|| format!("reading {:?}", image))?
                         .len();
-                    sdcard::verify_card(
-                        target,
-                        Some((&boot0, &boot_package, &image, firmware_len)),
-                        rep,
-                    )?;
+                    sdcard::verify_card(target, Some((&blobs, &image, firmware_len)), rep)?;
                 }
                 None => sdcard::verify_card(target, None, rep)?,
             }

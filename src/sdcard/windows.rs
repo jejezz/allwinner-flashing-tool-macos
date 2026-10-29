@@ -6,7 +6,7 @@
 //! `DeviceIoControl` itself.
 
 use super::relay::{self, Header};
-use super::{DiskInfo, FlashParams, OpenDisk};
+use super::{Blobs, DiskInfo, FlashParams, OpenDisk};
 use crate::event::Reporter;
 use anyhow::{bail, Context, Result};
 use std::ffi::OsStr;
@@ -285,8 +285,7 @@ fn connect_worker(rep: &Reporter) -> Result<(std::net::TcpStream, String)> {
 /// it. The image is read here, in the user's own session.
 pub fn flash_via_worker(
     disk: &DiskInfo,
-    boot0: &[u8],
-    boot_package: &[u8],
+    blobs: &Blobs,
     image: &Path,
     firmware_len: u64,
     params: &FlashParams,
@@ -299,25 +298,26 @@ pub fn flash_via_worker(
         disk: disk.id.clone(),
         force: params.force,
         max_size_bytes: params.max_size_bytes,
-        boot0_len: boot0.len() as u64,
-        boot_package_len: boot_package.len() as u64,
+        boot0_len: blobs.boot0.len() as u64,
+        boot_package_len: blobs.boot_package.len() as u64,
+        mbr_len: blobs.mbr.len() as u64,
         firmware_len,
         verify: params.verify,
     };
-    relay::parent_session(stream, &token, &header, boot0, boot_package, &mut firmware, rep)
+    relay::parent_session(stream, &token, &header, blobs, &mut firmware, rep)
 }
 
 /// Have an elevated worker read the card and judge it. While it reads, this
 /// side works out what the image says the card should hold.
 pub fn verify_via_worker(
     disk: &DiskInfo,
-    expected: Option<(&[u8], &[u8], &Path, u64)>,
-    lens: (u64, u64, u64),
+    expected: Option<(&Blobs, &Path, u64)>,
+    lens: (u64, u64, u64, u64),
     rep: &Reporter,
 ) -> Result<()> {
     std::thread::scope(|scope| -> Result<()> {
-        let digests = expected.map(|(boot0, boot_package, image, firmware_len)| {
-            scope.spawn(move || super::expected_digests(boot0, boot_package, image, firmware_len))
+        let digests = expected.map(|(blobs, image, firmware_len)| {
+            scope.spawn(move || super::expected_digests(blobs, image, firmware_len))
         });
         let (stream, token) = connect_worker(rep)?;
         let header = Header {
@@ -327,7 +327,8 @@ pub fn verify_via_worker(
             max_size_bytes: 0,
             boot0_len: lens.0,
             boot_package_len: lens.1,
-            firmware_len: lens.2,
+            mbr_len: lens.2,
+            firmware_len: lens.3,
             verify: true,
         };
         let report = relay::parent_verify(stream, &token, &header, rep)?;

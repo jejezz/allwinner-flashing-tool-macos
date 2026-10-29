@@ -45,13 +45,19 @@
 
 ## 0.6 실기에서 재현된 실패와 정정 (2026-10-29)
 
-실기(UART)로 확인하니 0.5절의 "offset 224와 체크섬 12바이트만 다름"이 **틀렸다**. Hawk Flasher로 구운 카드는 보드가 아예 쳐다보지 않고 eMMC로 바로 부팅했다(`card no is 2`, 8bit = eMMC). 반면 PhoenixCard 카드는 조작 없이 바로 SD카드(`card no is 0`, 4bit)에서 boot0가 로드·실행되고 `sunxi work mode=0x11` / `run card sprite`까지 정상 진입해 번까지 끝까지 돌았다.
+0.5절은 **틀렸다.** 실기(UART)로 확인한 순서:
 
-원본(패치 전) `boot0_sdcard.fex`와 PhoenixCard 카드의 boot0 영역(61440바이트 전체)을 1바이트씩 diff한 결과: **차이가 0바이트였다.** PhoenixCard는 boot0를 전혀 패치하지 않고 그대로 쓴다 — SDK가 빌드하는 `boot0_sdcard.fex`에는 이미 카드부팅용 work_mode와 올바른 체크섬이 들어있다.
+1. boot0를 패치해 쓴 카드는 보드가 쳐다보지도 않고 eMMC로 부팅했다(`card no is 2`, 8bit). 원인은 boot0의 체크섬이었다 — `card_boot0()`가 u-boot 헤더용 `length` offset(20)을 boot0에 써서 전체 61440바이트가 아니라 앞 48바이트만 합산했다. 이 boot0는 BootROM이 거부한다. PhoenixCard 카드와 원본 `boot0_sdcard.fex`를 61440바이트 전체로 비교하면 차이가 0이다: boot0는 **패치하지 않는다.** (`src/sdcard/verify.rs`는 이미 `BOOT0_LENGTH_OFFSET = 16`이라고 적어 놓고 쓰지 않았다.)
+2. 패치를 없애자 BootROM이 SD카드(`card no is 0`, 4bit)에서 boot0와 boot_package를 올렸지만, u-boot가 `workmode = 0`(PhoenixCard 카드는 17)으로 일반 부팅을 했다. 카드 모드는 **boot0가 아니라 u-boot가 정한다.**
+3. 두 카드를 섹터 단위로 비교하니 차이가 이것뿐이었다:
+   - 본체 boot_package(LBA 32800): u-boot 헤더 offset 224가 `0 → 0x11`, u-boot 헤더 체크섬 +0x11, TOC1 헤더 체크섬 +0x22 (4바이트). 백업(LBA 24576)은 이미지 그대로.
+   - LBA 40960: PhoenixCard는 firmware가 아니라 이미지의 `sunxi_mbr.fex`(128섹터)를 쓴다.
+   - firmware(IMAGEWTY)는 LBA 40960이 아니라 **LBA 98304**에 있다(u-boot 로그 `img start = 0x18000`, `read mmc start 98304`). 우리가 40960으로 알았던 `logical_start`는 파티션 테이블 위치였다.
+   - PhoenixCard는 그 밖에 GPT와 `thisdata.fex`(FAT 이미지)도 쓰는데, 이 도구는 쓰지 않는다 (필요 여부는 보드에서 확인할 것).
 
-즉 0.5절에서 "실물로 확인했다"고 적은 `offset 224 = work_mode` 패치는 **u-boot.fex(TOC1) 헤더를 기준으로 검증된 것**(`docs/T527-T507-FEL-EFEX-기술조사.md:142`)이지 boot0 기준이 아니었는데, 그 가정을 boot0에도 그대로 재사용한 게 문제였다. `src/sdcard/verify.rs`는 이미 `BOOT0_LENGTH_OFFSET = 16`("boot0는 u-boot와 다른 헤더 구조를 쓴다")이라는 주석까지 남겨뒀으면서도, 정작 `card_boot0()`/`check_card_boot0()`는 범용 `sunxi_head::LENGTH_OFFSET`(=20, u-boot용)을 썼다. boot0에서 offset20은 48이라는 다른 값을 담고 있어서, 체크섬이 전체 61440바이트가 아니라 **앞 48바이트만** 커버하도록 잘못 재계산되고 있었다 — 그 상태로 work_mode까지 패치하니 BootROM 체크섬 검증에서 탈락해 카드가 통째로 무시된 것.
+0.5절에서 "boot0는 offset 224와 체크섬만 다르고 boot_package는 0바이트 차이"라고 적은 비교는 PhoenixCard 카드가 아니라 이 도구의 옛 출력을 본 것으로 보인다. `offset 224 = work_mode`는 u-boot 헤더 기준으로 맞는 값이었고(`docs/T527-T507-FEL-EFEX-기술조사.md:142`), 그걸 boot0에 적용한 게 틀렸다.
 
-**수정**: `card_boot0()`는 더 이상 work_mode/체크섬을 패치하지 않는다. `check_shipped_boot0()`로 검증만 하고 원본을 그대로 반환한다 — PhoenixCard와 동일한 동작. `check_card_boot0()`도 `check_shipped_boot0()`와 같아졌다.
+**수정**: boot0는 원본 그대로, 본체 boot_package에는 u-boot work mode `0x11`(증분 체크섬), LBA 40960에 `sunxi_mbr.fex`, firmware는 LBA 98304. 구현 결과는 PhoenixCard 카드의 boot0·파티션 테이블·boot_package 두 슬롯과 바이트 단위로 같다.
 
 ---
 

@@ -15,7 +15,7 @@
 //! needs the board. It does remove "the card never got the data" and "the
 //! data was never a valid boot chain" from the list of suspects.
 
-use super::{CardError, BOOT0_LBA, BOOT_PACKAGE_BACKUP_LBA, BOOT_PACKAGE_LBA, FIRMWARE_LBA};
+use super::{CardError, BOOT0_LBA, BOOT_PACKAGE_BACKUP_LBA, BOOT_PACKAGE_LBA, FIRMWARE_LBA, MBR_LBA};
 use crate::event::Reporter;
 use crate::sunxi_head;
 use crate::sys_partition::SECTOR_SIZE;
@@ -32,6 +32,7 @@ const TOC1_HEAD_LEN: usize = 64;
 const TOC1_ITEM_LEN: usize = 368;
 const BOOT0_MAGIC: &[u8; 8] = b"eGON.BT0";
 const IMAGEWTY_MAGIC: &[u8; 8] = b"IMAGEWTY";
+const SUNXI_MBR_MAGIC: &[u8; 8] = b"softw411";
 
 // --- CRC-32 ----------------------------------------------------------------
 
@@ -198,13 +199,19 @@ pub fn compare(expected: &[RegionDigest], actual: &[RegionDigest]) -> Result<()>
     Ok(())
 }
 
-/// The four regions of a card in write order, from the lengths of what goes in
+/// The regions of a card in write order, from the lengths of what goes in
 /// them: (name, first LBA, bytes). boot0 is last on purpose — until it lands
 /// the BootROM finds no boot0, so an interrupted write leaves a card that does
 /// not boot rather than one that boots half an image.
-pub fn region_list(boot0_len: u64, boot_package_len: u64, firmware_len: u64) -> [(&'static str, u64, u64); 4] {
+pub fn region_list(
+    boot0_len: u64,
+    boot_package_len: u64,
+    mbr_len: u64,
+    firmware_len: u64,
+) -> [(&'static str, u64, u64); 5] {
     [
         ("firmware", FIRMWARE_LBA, firmware_len),
+        ("sunxi_mbr", MBR_LBA, mbr_len),
         ("boot_package", BOOT_PACKAGE_LBA, boot_package_len),
         ("boot_package_backup", BOOT_PACKAGE_BACKUP_LBA, boot_package_len),
         ("boot0", BOOT0_LBA, boot0_len),
@@ -290,6 +297,39 @@ fn uboot_item(buf: &[u8]) -> Result<(usize, usize)> {
     bail!("boot_package has no u-boot item")
 }
 
+const TOC1_SUM_OFFSET: usize = 20;
+
+/// The boot_package the board must find at the main slot of a fusing card: the
+/// shipped one with its u-boot's work mode set to `WORK_MODE_CARD_PRODUCT`.
+/// That is the only difference PhoenixCard makes (checked byte for byte against
+/// a card it wrote): the work mode word, and both checksums moved by the same
+/// amount the word did — the u-boot header's by it, the TOC1's by twice it
+/// (the word and the u-boot checksum are both inside the TOC1 sum). The backup
+/// slot keeps the shipped package.
+pub fn card_boot_package(shipped: &[u8]) -> Result<Vec<u8>> {
+    check_toc1(shipped).context("the image's boot_package")?;
+    let (offset, len) = uboot_item(shipped)?;
+    let mut data = shipped.to_vec();
+    let uboot = &mut data[offset..offset + len];
+    let before = sunxi_head::read_work_mode(uboot)?;
+    let delta = sunxi_head::WORK_MODE_CARD_PRODUCT.wrapping_sub(before);
+    sunxi_head::set_work_mode(uboot, sunxi_head::WORK_MODE_CARD_PRODUCT)?;
+    add_to_word(uboot, sunxi_head::CHECK_SUM_OFFSET, delta);
+    add_to_word(&mut data, TOC1_SUM_OFFSET, delta.wrapping_mul(2));
+    Ok(data)
+}
+
+fn add_to_word(buf: &mut [u8], at: usize, delta: u32) {
+    let now = u32::from_le_bytes(buf[at..at + 4].try_into().unwrap()).wrapping_add(delta);
+    buf[at..at + 4].copy_from_slice(&now.to_le_bytes());
+}
+
+/// The work mode the u-boot item of a TOC1 declares.
+pub fn toc1_work_mode(buf: &[u8]) -> Result<u32> {
+    let (offset, len) = uboot_item(buf)?;
+    sunxi_head::read_work_mode(buf.get(offset..offset + len).context("u-boot item outside the data")?)
+}
+
 /// What the card sprite requires of the TOC1 boot_package: magic, checksum over
 /// `valid_len`, items that lie inside it, and a u-boot item whose own header
 /// checksum holds. The card carries it exactly as the image has it.
@@ -359,7 +399,23 @@ pub fn check_card_structure<R: Read + Seek>(card: &mut R) -> Result<()> {
         if valid < TOC1_HEAD_LEN || valid > 16 << 20 {
             bail!("card sector {lba} holds no {what} (valid_len {valid})");
         }
-        check_toc1(&read_at(card, lba, valid)?).with_context(|| format!("{what} on the card"))?;
+        let toc1 = read_at(card, lba, valid)?;
+        check_toc1(&toc1).with_context(|| format!("{what} on the card"))?;
+        if lba == BOOT_PACKAGE_LBA {
+            let mode = toc1_work_mode(&toc1)?;
+            if mode != sunxi_head::WORK_MODE_CARD_PRODUCT {
+                bail!(
+                    "the boot_package's u-boot declares work mode {mode:#x}: the board would boot \
+                     normally instead of fusing ({:#04x} needed)",
+                    sunxi_head::WORK_MODE_CARD_PRODUCT
+                );
+            }
+        }
+    }
+
+    let mbr = read_at(card, MBR_LBA, SECTOR_SIZE as usize)?;
+    if mbr.get(8..16) != Some(&SUNXI_MBR_MAGIC[..]) {
+        bail!("card sector {MBR_LBA} holds no sunxi partition table (no softw411 magic)");
     }
 
     let fw = read_at(card, FIRMWARE_LBA, SECTOR_SIZE as usize)?;
@@ -431,6 +487,7 @@ pub(super) mod tests {
         let mut uboot = vec![0x22u8; UBOOT_LEN];
         uboot[4..9].copy_from_slice(b"uboot");
         uboot[20..24].copy_from_slice(&(UBOOT_LEN as u32).to_le_bytes());
+        uboot[224..228].fill(0); // work mode: normal boot, as shipped
         let uboot = with_sum(uboot, UBOOT_LEN, 12);
         b[UBOOT_AT..].copy_from_slice(&uboot);
         with_sum(b, len, 20)
@@ -534,16 +591,26 @@ pub(super) mod tests {
     fn the_whole_card_structure_checks_out_and_a_flip_is_caught() {
         let boot0 = good_boot0();
         let toc1 = good_toc1();
+        let main = card_boot_package(&toc1).unwrap();
         let mut card = vec![0u8; (FIRMWARE_LBA as usize + 8) * 512];
         let put = |card: &mut Vec<u8>, lba: u64, data: &[u8]| {
             let at = (lba * 512) as usize;
             card[at..at + data.len()].copy_from_slice(data);
         };
         put(&mut card, BOOT0_LBA, &boot0);
-        put(&mut card, BOOT_PACKAGE_LBA, &toc1);
+        put(&mut card, BOOT_PACKAGE_LBA, &main);
         put(&mut card, BOOT_PACKAGE_BACKUP_LBA, &toc1);
         put(&mut card, FIRMWARE_LBA, IMAGEWTY_MAGIC);
+        // No partition table yet: the structure is incomplete.
+        assert!(check_card_structure(&mut Cursor::new(card.clone())).is_err());
+        put(&mut card, MBR_LBA, b"\0\0\0\0\0\0\0\0softw411");
         check_card_structure(&mut Cursor::new(card.clone())).unwrap();
+
+        // The shipped package in the main slot would boot normally.
+        let mut unpatched = card.clone();
+        put(&mut unpatched, BOOT_PACKAGE_LBA, &toc1);
+        let err = check_card_structure(&mut Cursor::new(unpatched)).unwrap_err();
+        assert!(format!("{err:#}").contains("work mode"), "{err:#}");
 
         let mut no_fw = card.clone();
         no_fw[(FIRMWARE_LBA * 512) as usize] = 0;

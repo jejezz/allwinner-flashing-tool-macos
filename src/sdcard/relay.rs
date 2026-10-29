@@ -9,7 +9,7 @@
 //!
 //! ```text
 //! worker -> parent   <token>\n
-//! parent -> worker   <header json>\n  [boot0  boot_package  firmware  — write only]
+//! parent -> worker   <header json>\n  [boot0  boot_package  sunxi_mbr  firmware  — write only]
 //! worker -> parent   NDJSON events, then done | error
 //! ```
 //!
@@ -18,7 +18,7 @@
 //! sees the stream end mid-image and stops.
 
 use super::verify::{self, RegionDigest};
-use super::{write_card_layout, CardError};
+use super::{write_card_layout, Blobs, CardError};
 use crate::event::Reporter;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
@@ -47,6 +47,7 @@ pub struct Header {
     pub max_size_bytes: u64,
     pub boot0_len: u64,
     pub boot_package_len: u64,
+    pub mbr_len: u64,
     pub firmware_len: u64,
     /// Write only: read the card back and compare once it is written.
     pub verify: bool,
@@ -61,6 +62,7 @@ impl Header {
             "max_size_bytes": self.max_size_bytes,
             "boot0_len": self.boot0_len,
             "boot_package_len": self.boot_package_len,
+            "mbr_len": self.mbr_len,
             "firmware_len": self.firmware_len,
             "verify": self.verify,
         })
@@ -82,6 +84,7 @@ impl Header {
             max_size_bytes: num("max_size_bytes")?,
             boot0_len: num("boot0_len")?,
             boot_package_len: num("boot_package_len")?,
+            mbr_len: num("mbr_len")?,
             firmware_len: num("firmware_len")?,
             verify: v["verify"].as_bool().unwrap_or(true),
         })
@@ -125,15 +128,9 @@ pub trait WorkerHost {
 
 // --- Worker (elevated) side ------------------------------------------------
 
-/// The four regions of a card, with the lengths the header announced.
-fn regions_of(h: &Header) -> [(&'static str, u64, u64); 4] {
-    use super::{BOOT0_LBA, BOOT_PACKAGE_BACKUP_LBA, BOOT_PACKAGE_LBA, FIRMWARE_LBA};
-    [
-        ("firmware", FIRMWARE_LBA, h.firmware_len),
-        ("boot_package", BOOT_PACKAGE_LBA, h.boot_package_len),
-        ("boot_package_backup", BOOT_PACKAGE_BACKUP_LBA, h.boot_package_len),
-        ("boot0", BOOT0_LBA, h.boot0_len),
-    ]
+/// The regions of a card, with the lengths the header announced.
+fn regions_of(h: &Header) -> [(&'static str, u64, u64); 5] {
+    verify::region_list(h.boot0_len, h.boot_package_len, h.mbr_len, h.firmware_len)
 }
 
 /// Serve one request. The host validates the header and opens the disk before
@@ -159,11 +156,13 @@ pub fn worker_session(stream: TcpStream, token: &str, host: &mut dyn WorkerHost)
             from_parent
                 .read_exact(&mut boot_package)
                 .context("reading boot_package")?;
+            let mut mbr = vec![0u8; header.mbr_len as usize];
+            from_parent.read_exact(&mut mbr).context("reading the partition table")?;
+            let blobs = Blobs { boot0, boot_package, mbr };
             let mut firmware = (&mut from_parent).take(header.firmware_len);
             let written = write_card_layout(
                 &mut target.out,
-                &boot0,
-                &boot_package,
+                &blobs,
                 &mut firmware,
                 header.firmware_len,
                 &rep,
@@ -370,8 +369,7 @@ pub fn parent_session(
     stream: TcpStream,
     token: &str,
     header: &Header,
-    boot0: &[u8],
-    boot_package: &[u8],
+    blobs: &Blobs,
     firmware: &mut dyn Read,
     rep: &Reporter,
 ) -> Result<()> {
@@ -379,8 +377,9 @@ pub fn parent_session(
     let mut outcome = Outcome::default();
     let sent = (|| -> io::Result<()> {
         writeln!(writer, "{}", header.to_json())?;
-        writer.write_all(boot0)?;
-        writer.write_all(boot_package)?;
+        writer.write_all(&blobs.boot0)?;
+        writer.write_all(&blobs.boot_package)?;
+        writer.write_all(&blobs.mbr)?;
         let mut buf = vec![0u8; CHUNK];
         let mut left = header.firmware_len;
         while left > 0 {
@@ -451,7 +450,7 @@ pub fn judge(
         rep.step("content_ok", "the card holds exactly what the image says");
     }
     match structure {
-        Some(Ok(())) => rep.step("structure_ok", "boot0, boot_package and firmware headers are valid"),
+        Some(Ok(())) => rep.step("structure_ok", "boot0, boot_package, partition table and firmware headers are valid"),
         Some(Err(message)) => {
             return Err(CardError::new("structure_invalid", message).into());
         }
@@ -463,7 +462,7 @@ pub fn judge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sdcard::{BOOT0_LBA, BOOT_PACKAGE_BACKUP_LBA, BOOT_PACKAGE_LBA, FIRMWARE_LBA};
+    use crate::sdcard::{BOOT0_LBA, BOOT_PACKAGE_BACKUP_LBA, BOOT_PACKAGE_LBA, FIRMWARE_LBA, MBR_LBA};
     use std::io::{Cursor, SeekFrom};
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
@@ -532,38 +531,48 @@ mod tests {
         Shared(Arc::new(Mutex::new(Cursor::new(Vec::new()))))
     }
 
-    fn header(op: Op, boot0: &[u8], bp: &[u8], fw_len: usize) -> Header {
+    fn header(op: Op, b: &Blobs, fw_len: usize) -> Header {
         Header {
             op,
             disk: "disk-under-test".into(),
             force: false,
             max_size_bytes: 0,
-            boot0_len: boot0.len() as u64,
-            boot_package_len: bp.len() as u64,
+            boot0_len: b.boot0.len() as u64,
+            boot_package_len: b.boot_package.len() as u64,
+            mbr_len: b.mbr.len() as u64,
             firmware_len: fw_len as u64,
             verify: true,
         }
     }
 
-    fn blobs() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    fn blobs() -> (Blobs, Vec<u8>) {
         let mut fw = vec![0x77u8; 3_000_000];
         fw[..8].copy_from_slice(b"IMAGEWTY");
-        (verify::tests::good_boot0(), verify::tests::good_toc1(), fw)
+        let mut mbr = vec![0x33u8; 65_536];
+        mbr[8..16].copy_from_slice(b"softw411");
+        let b = Blobs {
+            boot0: verify::tests::good_boot0(),
+            boot_package: verify::tests::good_toc1(),
+            mbr,
+        };
+        (b, fw)
     }
 
-    fn expected_digests(boot0: &[u8], bp: &[u8], fw: &[u8]) -> Vec<RegionDigest> {
+    fn expected_digests(b: &Blobs, fw: &[u8]) -> Vec<RegionDigest> {
+        let main = verify::card_boot_package(&b.boot_package).unwrap();
         let d = |n, lba, data: &[u8]| {
             verify::digest_source(n, lba, data.len() as u64, &mut &data[..]).unwrap()
         };
         vec![
             d("firmware", FIRMWARE_LBA, fw),
-            d("boot_package", BOOT_PACKAGE_LBA, bp),
-            d("boot_package_backup", BOOT_PACKAGE_BACKUP_LBA, bp),
-            d("boot0", BOOT0_LBA, boot0),
+            d("sunxi_mbr", MBR_LBA, &b.mbr),
+            d("boot_package", BOOT_PACKAGE_LBA, &main),
+            d("boot_package_backup", BOOT_PACKAGE_BACKUP_LBA, &b.boot_package),
+            d("boot0", BOOT0_LBA, &b.boot0),
         ]
     }
 
-    fn write_through_worker(host: FakeHost, boot0: &[u8], bp: &[u8], fw: &[u8]) -> Result<()> {
+    fn write_through_worker(host: FakeHost, b: &Blobs, fw: &[u8]) -> Result<()> {
         let (worker_end, parent_end) = pair();
         let worker = thread::spawn(move || {
             let mut host = host;
@@ -572,9 +581,8 @@ mod tests {
         let result = parent_session(
             parent_end,
             "tok",
-            &header(Op::Write, boot0, bp, fw.len()),
-            boot0,
-            bp,
+            &header(Op::Write, b, fw.len()),
+            b,
             &mut &fw[..],
             &Reporter::new(false),
         );
@@ -584,32 +592,34 @@ mod tests {
 
     #[test]
     fn the_image_reaches_the_worker_at_the_fixed_lbas_and_reads_back_clean() {
-        let (boot0, bp, fw) = blobs();
+        let (b, fw) = blobs();
         let disk = new_disk();
         let host = FakeHost { disk: disk.clone(), refuse: None, corrupt_on_read: None };
-        write_through_worker(host, &boot0, &bp, &fw).unwrap();
+        write_through_worker(host, &b, &fw).unwrap();
 
         let bytes = disk.0.lock().unwrap().get_ref().clone();
         let at = |lba: u64| (lba * 512) as usize;
-        assert_eq!(&bytes[at(BOOT0_LBA)..at(BOOT0_LBA) + boot0.len()], &boot0[..]);
-        assert_eq!(&bytes[at(BOOT_PACKAGE_LBA)..at(BOOT_PACKAGE_LBA) + bp.len()], &bp[..]);
+        assert_eq!(&bytes[at(BOOT0_LBA)..at(BOOT0_LBA) + b.boot0.len()], &b.boot0[..]);
+        assert_eq!(&bytes[at(MBR_LBA)..at(MBR_LBA) + b.mbr.len()], &b.mbr[..]);
         assert_eq!(
-            &bytes[at(BOOT_PACKAGE_BACKUP_LBA)..at(BOOT_PACKAGE_BACKUP_LBA) + bp.len()],
-            &bp[..]
+            &bytes[at(BOOT_PACKAGE_BACKUP_LBA)..at(BOOT_PACKAGE_BACKUP_LBA) + b.boot_package.len()],
+            &b.boot_package[..]
         );
+        let main = &bytes[at(BOOT_PACKAGE_LBA)..at(BOOT_PACKAGE_LBA) + b.boot_package.len()];
+        assert_eq!(main, &verify::card_boot_package(&b.boot_package).unwrap()[..]);
         assert_eq!(&bytes[at(FIRMWARE_LBA)..at(FIRMWARE_LBA) + fw.len()], &fw[..]);
     }
 
     #[test]
     fn a_card_that_returns_other_bytes_than_were_written_is_caught() {
-        let (boot0, bp, fw) = blobs();
+        let (b, fw) = blobs();
         let flipped = (FIRMWARE_LBA * 512) as usize + 70_000;
         let host = FakeHost {
             disk: new_disk(),
             refuse: None,
             corrupt_on_read: Some(flipped),
         };
-        let err = write_through_worker(host, &boot0, &bp, &fw).unwrap_err();
+        let err = write_through_worker(host, &b, &fw).unwrap_err();
         let card = err.downcast_ref::<CardError>().expect("a CardError");
         assert_eq!(card.kind, "verify_failed");
         // 70000 falls in the second 64 KB chunk.
@@ -618,10 +628,10 @@ mod tests {
 
     #[test]
     fn a_refused_disk_comes_back_as_the_same_safety_error() {
-        let (boot0, bp, _) = blobs();
+        let (b, _) = blobs();
         let fw = vec![1u8; 20_000_000]; // still being sent when the refusal lands
         let host = FakeHost { disk: new_disk(), refuse: Some("is_system_disk"), corrupt_on_read: None };
-        let err = write_through_worker(host, &boot0, &bp, &fw).unwrap_err();
+        let err = write_through_worker(host, &b, &fw).unwrap_err();
         assert_eq!(err.downcast_ref::<CardError>().unwrap().kind, "is_system_disk");
         assert!(format!("{err:#}").contains("system disk"));
     }
@@ -634,12 +644,12 @@ mod tests {
             worker_session(worker_end, "not-the-token", &mut host)
         });
         let data = vec![0u8; 4096];
+        let b = Blobs { boot0: data.clone(), boot_package: data.clone(), mbr: data.clone() };
         let err = parent_session(
             parent_end,
             "tok",
-            &header(Op::Write, &data, &data, data.len()),
-            &data,
-            &data,
+            &header(Op::Write, &b, data.len()),
+            &b,
             &mut &data[..],
             &Reporter::new(false),
         )
@@ -648,12 +658,12 @@ mod tests {
         let _ = worker.join();
     }
 
-    fn written_disk() -> (Shared, Vec<u8>, Vec<u8>, Vec<u8>) {
-        let (boot0, bp, fw) = blobs();
+    fn written_disk() -> (Shared, Blobs, Vec<u8>) {
+        let (b, fw) = blobs();
         let disk = new_disk();
         let host = FakeHost { disk: disk.clone(), refuse: None, corrupt_on_read: None };
-        write_through_worker(host, &boot0, &bp, &fw).unwrap();
-        (disk, boot0, bp, fw)
+        write_through_worker(host, &b, &fw).unwrap();
+        (disk, b, fw)
     }
 
     fn verify_through_worker(host: FakeHost, expected: Option<&[RegionDigest]>, h: Header) -> Result<()> {
@@ -671,29 +681,29 @@ mod tests {
 
     #[test]
     fn verifying_an_untouched_card_against_its_image_passes() {
-        let (disk, boot0, bp, fw) = written_disk();
+        let (disk, b, fw) = written_disk();
         let host = FakeHost { disk, refuse: None, corrupt_on_read: None };
-        let expected = expected_digests(&boot0, &bp, &fw);
-        verify_through_worker(host, Some(&expected), header(Op::Verify, &boot0, &bp, fw.len())).unwrap();
+        let expected = expected_digests(&b, &fw);
+        verify_through_worker(host, Some(&expected), header(Op::Verify, &b, fw.len())).unwrap();
     }
 
     #[test]
     fn verifying_without_an_image_still_judges_the_structure() {
-        let (disk, boot0, bp, fw) = written_disk();
+        let (disk, b, fw) = written_disk();
         let host = FakeHost { disk, refuse: None, corrupt_on_read: None };
-        verify_through_worker(host, None, header(Op::Verify, &boot0, &bp, fw.len())).unwrap();
+        verify_through_worker(host, None, header(Op::Verify, &b, fw.len())).unwrap();
     }
 
     #[test]
     fn a_card_that_drifted_from_the_image_is_reported_with_its_location() {
-        let (disk, boot0, bp, fw) = written_disk();
-        let expected = expected_digests(&boot0, &bp, &fw);
+        let (disk, b, fw) = written_disk();
+        let expected = expected_digests(&b, &fw);
         let host = FakeHost {
             disk,
             refuse: None,
             corrupt_on_read: Some((FIRMWARE_LBA * 512) as usize + 5),
         };
-        let err = verify_through_worker(host, Some(&expected), header(Op::Verify, &boot0, &bp, fw.len()))
+        let err = verify_through_worker(host, Some(&expected), header(Op::Verify, &b, fw.len()))
             .unwrap_err();
         assert_eq!(err.downcast_ref::<CardError>().unwrap().kind, "verify_failed");
         assert!(format!("{err:#}").contains("firmware"), "{err:#}");
@@ -701,14 +711,30 @@ mod tests {
 
     #[test]
     fn a_card_with_a_broken_boot_chain_fails_the_structure_check() {
-        let (disk, boot0, bp, fw) = written_disk();
+        let (disk, b, fw) = written_disk();
         let host = FakeHost {
             disk,
             refuse: None,
             corrupt_on_read: Some((BOOT_PACKAGE_LBA * 512) as usize + 100),
         };
-        let err = verify_through_worker(host, None, header(Op::Verify, &boot0, &bp, fw.len())).unwrap_err();
+        let err = verify_through_worker(host, None, header(Op::Verify, &b, fw.len())).unwrap_err();
         assert_eq!(err.downcast_ref::<CardError>().unwrap().kind, "structure_invalid");
         assert!(format!("{err:#}").contains("boot_package"), "{err:#}");
+    }
+
+    #[test]
+    fn a_card_whose_main_package_lacks_the_card_work_mode_fails_the_structure_check() {
+        // What Hawk Flasher used to write: the shipped package in both slots.
+        let (disk, b, fw) = written_disk();
+        {
+            let mut d = disk.0.lock().unwrap();
+            let at = (BOOT_PACKAGE_LBA * 512) as usize;
+            let shipped = b.boot_package.clone();
+            d.get_mut()[at..at + shipped.len()].copy_from_slice(&shipped);
+        }
+        let host = FakeHost { disk, refuse: None, corrupt_on_read: None };
+        let err = verify_through_worker(host, None, header(Op::Verify, &b, fw.len())).unwrap_err();
+        assert_eq!(err.downcast_ref::<CardError>().unwrap().kind, "structure_invalid");
+        assert!(format!("{err:#}").contains("work mode"), "{err:#}");
     }
 }

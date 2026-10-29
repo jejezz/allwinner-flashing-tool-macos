@@ -229,7 +229,7 @@ aw-tool flash-sdcard firmware.img '\\.\PhysicalDrive2'   # Windows
 sudo aw-tool flash-sdcard firmware.img /dev/disk4        # macOS
 ```
 
-기록 위치(512B 섹터): firmware.img 전체 → LBA 40960, boot_package(TOC1) → 32800과 백업 24576 **(이미지 그대로)**, boot0 → 16. boot0는 이미지의 `boot0_sdcard.fex`에서 두 가지만 바꾼다 — offset 224의 카드 work mode를 `0x11`로, 헤더 체크섬(offset 12)을 다시 계산. boot0를 **마지막**에 쓴다 — 도중에 끊기면 BootROM이 유효한 boot0를 못 찾아 카드가 "부팅되지 않는" 쪽으로 실패한다.
+기록 위치(512B 섹터): firmware.img 전체 → LBA 40960, boot_package(TOC1) → 32800과 백업 24576, boot0 → 16 — **셋 다 이미지 그대로, 패치 없이** 쓴다. `boot0_sdcard.fex`는 SDK 빌드 시점에 이미 카드부팅용 work_mode와 올바른 체크섬이 들어있다 (`docs/sdcard-fusing-조사.md` 0.6절 — 한때 offset 224의 work_mode를 패치하고 체크섬을 재계산했으나, 그 offset/체크섬 범위는 u-boot 헤더 기준으로 검증된 것이라 boot0에는 맞지 않았고, 패치한 카드는 BootROM이 거부해 eMMC로 조용히 넘어갔다). boot0를 **마지막**에 쓴다 — 도중에 끊기면 BootROM이 유효한 boot0를 못 찾아 카드가 "부팅되지 않는" 쪽으로 실패한다.
 
 ### 카드를 보드 없이 검증하기
 

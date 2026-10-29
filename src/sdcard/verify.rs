@@ -256,37 +256,24 @@ pub fn check_shipped_boot0(buf: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// boot0 as a fusing card carries it, which is what the vendor's PhoenixCard
-/// writes (confirmed byte for byte against a card it wrote): the shipped boot0
-/// with its card work mode (offset 224) set to `WORK_MODE_CARD_PRODUCT` and the
-/// header checksum redone over the 48-byte public header.
+/// boot0 as a fusing card carries it: byte-identical to the shipped
+/// `boot0_sdcard.fex`, confirmed against a card PhoenixCard wrote (a full
+/// 61440-byte diff showed zero differences). The SD-card build of boot0
+/// already ships with the card work mode and a valid checksum baked in by
+/// the SDK — patching `offset 224` (verified only against u-boot's header,
+/// never against boot0's) and recomputing the checksum over the wrong
+/// `length` field corrupts both and makes the BootROM reject it, which is
+/// why a card written that way silently falls through to eMMC instead of
+/// entering `WORK_MODE_CARD_PRODUCT`. Do not patch it.
 pub fn card_boot0(shipped: &[u8]) -> Result<Vec<u8>> {
     check_shipped_boot0(shipped).context("the image's boot0")?;
-    let mut data = shipped.to_vec();
-    sunxi_head::set_work_mode(&mut data, sunxi_head::WORK_MODE_CARD_PRODUCT)
-        .context("setting the card work mode in boot0")?;
-    sunxi_head::fix_checksum(&mut data).context("recomputing the boot0 header checksum")?;
-    Ok(data)
+    Ok(shipped.to_vec())
 }
 
-/// What the card's boot0 must look like: the eGON header, a valid header
-/// checksum, and the card work mode.
+/// What the card's boot0 must look like: the same thing [`check_shipped_boot0`]
+/// checks, since the card carries it unpatched.
 pub fn check_card_boot0(buf: &[u8]) -> Result<()> {
-    if buf.get(4..12) != Some(&BOOT0_MAGIC[..]) {
-        bail!("boot0 does not start with the eGON.BT0 header");
-    }
-    let head = u32_at(buf, sunxi_head::LENGTH_OFFSET) as usize;
-    if !sunxi_head::checksum_ok(buf, head, sunxi_head::CHECK_SUM_OFFSET) {
-        bail!("boot0 header checksum is wrong");
-    }
-    let mode = sunxi_head::read_work_mode(buf)?;
-    if mode != sunxi_head::WORK_MODE_CARD_PRODUCT {
-        bail!(
-            "boot0 declares work mode {mode:#x}, but a fusing card needs {:#04x}",
-            sunxi_head::WORK_MODE_CARD_PRODUCT
-        );
-    }
-    Ok(())
+    check_shipped_boot0(buf)
 }
 
 /// Where the `u-boot` item sits inside a TOC1: (offset, length).
@@ -457,29 +444,11 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn the_card_boot0_changes_only_the_work_mode_and_the_checksum() {
-        let shipped = shipped_boot0();
-        let card = good_boot0();
-        let differing: Vec<usize> = (0..shipped.len()).filter(|&i| shipped[i] != card[i]).collect();
-        assert!(
-            differing.iter().all(|&i| (12..16).contains(&i) || (224..228).contains(&i)),
-            "unexpected changes at {differing:?}"
-        );
-        assert_eq!(
-            sunxi_head::read_work_mode(&card).unwrap(),
-            sunxi_head::WORK_MODE_CARD_PRODUCT
-        );
-    }
-
-    #[test]
-    fn a_shipped_boot0_is_not_a_card_boot0() {
-        // Shipped as-is it fails on its header checksum (the build summed the
-        // whole file) — and even with that redone, it lacks the card work mode.
-        assert!(check_card_boot0(&shipped_boot0()).is_err());
-        let mut header_summed = shipped_boot0();
-        sunxi_head::fix_checksum(&mut header_summed).unwrap();
-        let err = check_card_boot0(&header_summed).unwrap_err();
-        assert!(err.to_string().contains("work mode"), "{err}");
+    fn the_card_boot0_is_byte_identical_to_shipped() {
+        // Confirmed against a real PhoenixCard-written card: a full diff of
+        // its boot0 against the image's unpatched boot0_sdcard.fex showed
+        // zero differing bytes.
+        assert_eq!(shipped_boot0(), good_boot0());
     }
 
     #[test]
@@ -492,12 +461,7 @@ pub(super) mod tests {
         let mut flipped = shipped_boot0();
         flipped[1000] ^= 1;
         assert!(check_shipped_boot0(&flipped).unwrap_err().to_string().contains("checksum"));
-
-        // The header sum covers only the first 48 bytes, so a flip further in
-        // does not show there — the read-back comparison is what catches it.
-        let mut card = good_boot0();
-        card[20] ^= 1;
-        assert!(check_card_boot0(&card).is_err());
+        assert!(check_card_boot0(&flipped).unwrap_err().to_string().contains("checksum"));
     }
 
     #[test]

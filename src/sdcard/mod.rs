@@ -639,7 +639,7 @@ mod real_image {
         check_toc1(&boot_package).expect("the SDK's boot_package should pass the TOC1 checks");
         let boot0 = card_boot0(&shipped).unwrap();
         check_card_boot0(&boot0).expect("the card boot0 should pass its checks");
-        assert!(check_card_boot0(&shipped).is_err(), "a shipped boot0 is not a card boot0");
+        assert_eq!(boot0, shipped, "the card boot0 should be the shipped boot0, unpatched");
 
         // If a card written by the vendor's tool is at hand, our boot0 must be
         // exactly what that tool wrote: `AW_TEST_CARD_BOOT0=<dump of LBA 16..>`.

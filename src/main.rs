@@ -771,8 +771,8 @@ fn run(command: Command, rep: &Reporter) -> Result<()> {
                 img.find(&boot_package_item)
                     .with_context(|| format!("{boot_package_item} not found in image"))?,
             )?;
-            // What PhoenixCard writes: boot0 with the card work mode set,
-            // boot_package untouched.
+            // What PhoenixCard writes: boot0 and boot_package exactly as the
+            // image has them, unpatched.
             let boot0 = sdcard::card_boot0(&boot0_raw)?;
             let boot_package = boot_package_raw;
             let firmware_len = std::fs::metadata(&image)

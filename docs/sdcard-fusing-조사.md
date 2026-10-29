@@ -43,6 +43,18 @@
 
 ---
 
+## 0.6 실기에서 재현된 실패와 정정 (2026-10-29)
+
+실기(UART)로 확인하니 0.5절의 "offset 224와 체크섬 12바이트만 다름"이 **틀렸다**. Hawk Flasher로 구운 카드는 보드가 아예 쳐다보지 않고 eMMC로 바로 부팅했다(`card no is 2`, 8bit = eMMC). 반면 PhoenixCard 카드는 조작 없이 바로 SD카드(`card no is 0`, 4bit)에서 boot0가 로드·실행되고 `sunxi work mode=0x11` / `run card sprite`까지 정상 진입해 번까지 끝까지 돌았다.
+
+원본(패치 전) `boot0_sdcard.fex`와 PhoenixCard 카드의 boot0 영역(61440바이트 전체)을 1바이트씩 diff한 결과: **차이가 0바이트였다.** PhoenixCard는 boot0를 전혀 패치하지 않고 그대로 쓴다 — SDK가 빌드하는 `boot0_sdcard.fex`에는 이미 카드부팅용 work_mode와 올바른 체크섬이 들어있다.
+
+즉 0.5절에서 "실물로 확인했다"고 적은 `offset 224 = work_mode` 패치는 **u-boot.fex(TOC1) 헤더를 기준으로 검증된 것**(`docs/T527-T507-FEL-EFEX-기술조사.md:142`)이지 boot0 기준이 아니었는데, 그 가정을 boot0에도 그대로 재사용한 게 문제였다. `src/sdcard/verify.rs`는 이미 `BOOT0_LENGTH_OFFSET = 16`("boot0는 u-boot와 다른 헤더 구조를 쓴다")이라는 주석까지 남겨뒀으면서도, 정작 `card_boot0()`/`check_card_boot0()`는 범용 `sunxi_head::LENGTH_OFFSET`(=20, u-boot용)을 썼다. boot0에서 offset20은 48이라는 다른 값을 담고 있어서, 체크섬이 전체 61440바이트가 아니라 **앞 48바이트만** 커버하도록 잘못 재계산되고 있었다 — 그 상태로 work_mode까지 패치하니 BootROM 체크섬 검증에서 탈락해 카드가 통째로 무시된 것.
+
+**수정**: `card_boot0()`는 더 이상 work_mode/체크섬을 패치하지 않는다. `check_shipped_boot0()`로 검증만 하고 원본을 그대로 반환한다 — PhoenixCard와 동일한 동작. `check_card_boot0()`도 `check_shipped_boot0()`와 같아졌다.
+
+---
+
 ## 1. work_mode 전체 표
 
 출처: `include/spare_head.h:13-27`
@@ -207,6 +219,8 @@ Documentations/
 1. 보드 DTS (안드로이드 커널 쪽, `device/` 또는 커널 트리의 `sun55iw3-pluto*.dts` 류 — 이번 조사에서 u-boot 트리 안에만 머물러서 못 찾음)
 2. 보드 사양서/스키매틱의 여분 GPIO
 3. 최후 수단: 기존에 안 쓰는 범용 GPIO 헤더 핀을 하드코딩
+
+> **보드별 DTS 위치 (SDK 전체 검색 결과)**: 보드 단위 오버라이드는 `longan/device/config/chips/<soc>/configs/<board>/uboot-board.dts`에 있다 (T507: `janus` / `rhea` / `titan`, `longan/device/product/configs/<board>/`에도 사본). 이 SDK에는 `pluto*` 보드 디렉터리가 보이지 않으므로, 실제 pluto 보드의 `uboot-board.dts`는 별도 SDK/브랜치에 있을 가능성이 높다. 전체 트리에서 `sprite_gpio0`를 실제 값으로 지정한 파일은 SoC 레퍼런스 DTS뿐이다.
 
 ### 6.5 변경 범위 — u-boot 재빌드가 필요한가? (요청사항 4, 5번)
 

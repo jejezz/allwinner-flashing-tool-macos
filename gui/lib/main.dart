@@ -452,8 +452,10 @@ class _ControlColumn extends StatelessWidget {
             const SizedBox(height: 8),
             _ImageCard(model: model, onPick: onPick),
             const SizedBox(height: 8),
-            _SdCardCard(model: model, onOpen: onSdCard),
-            const SizedBox(height: 8),
+            if (_showSdCardEntry) ...[
+              _SdCardCard(model: model, onOpen: onSdCard),
+              const SizedBox(height: 8),
+            ],
             _OptionsCard(model: model),
             const SizedBox(height: 8),
             SizedBox(height: 210, child: _PartitionCard(model: model)),
@@ -705,6 +707,10 @@ class _ImageCardState extends State<_ImageCard> {
     );
   }
 }
+
+/// Card fusing is hidden until a card written by `flash-sdcard` is confirmed to
+/// install on a real board (see docs/sdcard-fusing-조사.md 0.6).
+const _showSdCardEntry = false;
 
 /// Entry point for card fusing: enabled as soon as an image is loaded, since it
 /// needs no board on the USB cable.

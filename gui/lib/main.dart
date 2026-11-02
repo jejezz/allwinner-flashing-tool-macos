@@ -694,10 +694,14 @@ class _ImageCardState extends State<_ImageCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  path == null ? l10n.imageTitle : path.split('/').last,
-                  style: theme.textTheme.titleMedium,
-                  overflow: TextOverflow.ellipsis,
+                Tooltip(
+                  message: path ?? '',
+                  waitDuration: const Duration(milliseconds: 400),
+                  child: Text(
+                    path == null ? l10n.imageTitle : path.split('/').last,
+                    style: theme.textTheme.titleMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(

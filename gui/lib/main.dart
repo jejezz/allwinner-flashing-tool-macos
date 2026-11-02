@@ -442,24 +442,42 @@ class _ControlColumn extends StatelessWidget {
     // The flash button is the Scaffold's floating action button (bottom
     // right of the whole window), not part of this column, so it's always
     // visible regardless of how far either side is scrolled.
+    //
+    // When the window is taller than the stack, the partition card takes
+    // the leftover height (like the log card on the other side); at its
+    // 210 minimum the stack scrolls. The fixed-height SizedBox inside the
+    // Expanded gives IntrinsicHeight a size to report (a ListView can't)
+    // while Expanded's tight constraints override it with the real height.
     return Scrollbar(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.only(right: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _DeviceCard(model: model),
-            const SizedBox(height: 8),
-            _ImageCard(model: model, onPick: onPick),
-            const SizedBox(height: 8),
-            if (_showSdCardEntry) ...[
-              _SdCardCard(model: model, onOpen: onSdCard),
-              const SizedBox(height: 8),
-            ],
-            _OptionsCard(model: model),
-            const SizedBox(height: 8),
-            SizedBox(height: 210, child: _PartitionCard(model: model)),
-          ],
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: const EdgeInsets.only(right: 10),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _DeviceCard(model: model),
+                  const SizedBox(height: 8),
+                  _ImageCard(model: model, onPick: onPick),
+                  const SizedBox(height: 8),
+                  if (_showSdCardEntry) ...[
+                    _SdCardCard(model: model, onOpen: onSdCard),
+                    const SizedBox(height: 8),
+                  ],
+                  _OptionsCard(model: model),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: SizedBox(
+                      height: 210,
+                      child: _PartitionCard(model: model),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

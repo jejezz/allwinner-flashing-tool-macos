@@ -43,8 +43,8 @@ from the SHA-256 of the app id (same id, same colour, nothing to record), at
 fixed saturation/value, skipping the orange-yellow band the cat itself lives
 in. The plate fades top to bottom with a soft halo behind the cat, and the cat
 casts a shadow. The app's own glyph (assets/icon/source_glyph.png, its old
-Sticker icon) rides along as a prop badge in the lower right, so apps stay
-apart even where there is no plate (Windows). Platform shapes (macOS 824px plate, Windows glyph alone, ...)
+Sticker icon) is the main figure up-left and the cat a small badge in the
+lower right, so apps stay apart even where there is no plate (Windows). Platform shapes (macOS 824px plate, Windows glyph alone, ...)
 are unchanged. The cat artwork is a paid Icons8 asset: pass its path, do not
 commit it to a public repository.
 """
@@ -81,13 +81,15 @@ CAT_HALO = (0.25, 1.0)
 CAT_HALO_ALPHA = 110
 CAT_SHADOW_ALPHA = 0.35
 CAT_MAC_GLYPH_FRACTION = 0.80  # of the 824px plate
-# Cat + prop composite (1024 canvas fractions): the cat sits up-left of centre,
-# the prop badge in the lower right, pulled in from the corner.
-CAT_PROP_CAT = 0.68
-CAT_PROP_CAT_OFFSET = (-0.05, -0.06)
+# Prop + cat composite (1024 canvas fractions): the app's own prop glyph is the
+# main figure, dead centre; the cat is a small badge in the lower right,
+# pulled in from the corner. (The other way round, the shared cat dominated and
+# every app looked the same.)
+CAT_PROP_PROP = 0.76
+CAT_PROP_PROP_OFFSET = (0.0, 0.0)
 CAT_PROP_BADGE = 0.42
 CAT_PROP_MARGIN = 0.06
-CAT_PROP_ADAPTIVE_FRACTION = 0.46  # the badge corner must stay in the safe zone
+CAT_PROP_ADAPTIVE_FRACTION = 0.46  # the cat badge corner must stay in the safe zone
 
 # macOS: Apple's icon grid.
 MAC_PLATE = 824
@@ -162,8 +164,8 @@ def with_shadow(art: Image.Image) -> Image.Image:
 
 
 def shadowed(art: Image.Image) -> Image.Image:
-    """Cat mode: shadow under the glyph, unless the cat+prop composite
-    already shadowed its cat (the prop sticker has its own shadow)."""
+    """Cat mode: shadow under the glyph, unless the prop+cat composite
+    already shadowed both parts."""
     return art if APP_HUE is None or PROP_COMPOSED else with_shadow(art)
 
 
@@ -185,15 +187,16 @@ def backed(prop: Image.Image) -> Image.Image:
 
 
 def cat_with_prop(cat: Image.Image, prop: Image.Image) -> Image.Image:
-    """Cat (with shadow) up-left, prop sticker lower right, on a MASTER canvas."""
+    """Prop (with shadow) up-left as the main figure, cat badge lower right,
+    on a MASTER canvas."""
     canvas = Image.new('RGBA', (MASTER, MASTER), (0, 0, 0, 0))
-    cat_art = with_shadow(fit(cat, round(MASTER * CAT_PROP_CAT)))
-    canvas.alpha_composite(cat_art, (
-        (MASTER - cat_art.width) // 2 + round(CAT_PROP_CAT_OFFSET[0] * MASTER),
-        (MASTER - cat_art.height) // 2 + round(CAT_PROP_CAT_OFFSET[1] * MASTER)))
     if PROP_TILE or is_plain_light(prop):
         prop = backed(prop)
-    badge = fit(prop, round(MASTER * CAT_PROP_BADGE))
+    prop_art = with_shadow(fit(prop, round(MASTER * CAT_PROP_PROP)))
+    canvas.alpha_composite(prop_art, (
+        (MASTER - prop_art.width) // 2 + round(CAT_PROP_PROP_OFFSET[0] * MASTER),
+        (MASTER - prop_art.height) // 2 + round(CAT_PROP_PROP_OFFSET[1] * MASTER)))
+    badge = with_shadow(fit(cat, round(MASTER * CAT_PROP_BADGE)))
     margin = round(MASTER * CAT_PROP_MARGIN)
     canvas.alpha_composite(badge, (MASTER - badge.width - margin, MASTER - badge.height - margin))
     return canvas
@@ -429,7 +432,7 @@ def main() -> None:
     if APP_HUE is not None and prop_path.exists():
         glyph = cat_with_prop(glyph, Image.open(prop_path).convert('RGBA'))
         PROP_COMPOSED = True
-        print(f'prop      {prop_path.relative_to(ROOT)} (lower right badge)')
+        print(f'prop      {prop_path.relative_to(ROOT)} (lower-right cat badge, prop is the main figure)')
 
     mac = macos_icon(glyph)
     ICON_DIR.mkdir(parents=True, exist_ok=True)

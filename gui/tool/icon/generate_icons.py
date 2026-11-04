@@ -82,11 +82,11 @@ CAT_HALO_ALPHA = 110
 CAT_SHADOW_ALPHA = 0.35
 CAT_MAC_GLYPH_FRACTION = 0.80  # of the 824px plate
 # Prop + cat composite (1024 canvas fractions): the app's own prop glyph is the
-# main figure, up-left of centre; the cat is a small badge in the lower right,
+# main figure, dead centre; the cat is a small badge in the lower right,
 # pulled in from the corner. (The other way round, the shared cat dominated and
 # every app looked the same.)
-CAT_PROP_PROP = 0.68
-CAT_PROP_PROP_OFFSET = (-0.05, -0.06)
+CAT_PROP_PROP = 0.76
+CAT_PROP_PROP_OFFSET = (0.0, 0.0)
 CAT_PROP_BADGE = 0.42
 CAT_PROP_MARGIN = 0.06
 CAT_PROP_ADAPTIVE_FRACTION = 0.46  # the cat badge corner must stay in the safe zone

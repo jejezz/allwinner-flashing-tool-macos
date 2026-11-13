@@ -160,6 +160,16 @@
     }
   },
   "updateReleaseNotes": "What's new",
+  "updateMoreChanges": "{count, plural, =1{and 1 more} other{and {count} more}}",
+  "@updateMoreChanges": {
+    "description": "Under the change list in the update dialog, when some items were left out.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "updateViewReleaseNotes": "Release notes",
   "updateNow": "Update now",
   "updateLater": "Later",
   "updateSkipVersion": "Skip this version",

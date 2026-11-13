@@ -162,7 +162,10 @@ class UpdateService {
         final choice = await showDialog<UpdateChoice>(
           context: context,
           barrierDismissible: false,
-          builder: (_) => UpdateAvailableDialog(info: info),
+          builder: (_) => UpdateAvailableDialog(
+            info: info,
+            onOpenReleaseNotes: () => _openUrl(releaseNotesUrl(info)),
+          ),
         );
         switch (choice) {
           case UpdateChoice.now:
@@ -294,3 +297,7 @@ class UpdateService {
     }
   }
 }
+
+/// 릴리스 노트 전문을 볼 주소: 서버가 준 릴리스 주소, 없으면 저장소의 그 태그 페이지.
+Uri releaseNotesUrl(UpdateInfo info) =>
+    info.releaseUrl ?? Uri.parse('${AppIdentity.repositoryUrl}/releases/tag/${Uri.encodeComponent(info.tag)}');

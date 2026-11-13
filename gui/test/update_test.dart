@@ -175,6 +175,47 @@ void main() {
       expect(await h.policy.isSkipped('1.1.0'), isFalse);
     });
 
+    testWidgets('GitHub release notes show only the changes, not the raw Markdown or install guide', (tester) async {
+      const notes = '''
+## What's Changed
+* feat: 탭을 끌어서 옮긴다 by @jejezz in https://github.com/jejezz/sample-flutter/pull/28
+* chore(release): v1.1.0 by @jejezz in https://github.com/jejezz/sample-flutter/pull/29
+
+**Full Changelog**: https://github.com/jejezz/sample-flutter/compare/v1.0.0...v1.1.0
+
+---
+
+## 설치 / Install
+| OS | 받을 파일 / File |
+|---|---|
+''';
+      final h = _Harness()..updater.checkResult = UpdateAvailable(_info(notes: notes));
+      await _check(tester, h);
+      expect(find.text('탭을 끌어서 옮긴다'), findsOneWidget);
+      expect(find.textContaining('chore'), findsNothing);
+      expect(find.textContaining('##'), findsNothing);
+      expect(find.textContaining('설치 / Install'), findsNothing);
+    });
+
+    testWidgets('many changes are capped with a count', (tester) async {
+      final notes = [for (var i = 1; i <= 8; i++) '* feat: 항목 $i'].join('\n');
+      final h = _Harness()..updater.checkResult = UpdateAvailable(_info(notes: notes));
+      await _check(tester, h);
+      expect(find.text('항목 6'), findsOneWidget);
+      expect(find.text('항목 7'), findsNothing);
+      expect(find.text('외 2건'), findsOneWidget);
+    });
+
+    testWidgets('Release notes opens the release page and keeps the dialog open', (tester) async {
+      final h = _Harness()..updater.checkResult = UpdateAvailable(_info());
+      await _check(tester, h);
+      await tester.tap(find.text('릴리스 노트 보기'));
+      await tester.pumpAndSettle();
+      expect(h.opened, [Uri.parse('https://github.com/jejezz/sample-flutter/releases/tag/v1.1.0')]);
+      expect(find.text('새 버전이 있습니다'), findsOneWidget);
+      expect(h.updater.downloads, 0);
+    });
+
     testWidgets('Skip remembers this version', (tester) async {
       final h = _Harness()..updater.checkResult = UpdateAvailable(_info());
       await _check(tester, h);

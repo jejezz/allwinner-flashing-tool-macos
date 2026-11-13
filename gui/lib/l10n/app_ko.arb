@@ -256,6 +256,16 @@
     }
   },
   "updateReleaseNotes": "변경 내용",
+  "updateMoreChanges": "외 {count}건",
+  "@updateMoreChanges": {
+    "description": "업데이트 알림의 변경 항목 아래. 개수 제한으로 뺀 항목이 있을 때.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "updateViewReleaseNotes": "릴리스 노트 보기",
   "updateNow": "지금 업데이트",
   "updateLater": "나중에",
   "updateSkipVersion": "이 버전 건너뛰기",

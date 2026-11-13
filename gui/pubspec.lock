@@ -13,11 +13,11 @@ packages:
     dependency: "direct main"
     description:
       path: updater
-      ref: "updater-v0.1.0"
-      resolved-ref: "33e26a11f65760f775ff3ac6bc3b19aed4ce75b0"
+      ref: "5a21d66db05b2da98985b0611c2b985321005e5d"
+      resolved-ref: "5a21d66db05b2da98985b0611c2b985321005e5d"
       url: "https://github.com/jejezz/application-release-templates"
     source: git
-    version: "0.1.0"
+    version: "0.2.0"
   args:
     dependency: transitive
     description:

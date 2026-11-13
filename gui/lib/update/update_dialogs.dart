@@ -15,17 +15,23 @@ import '../l10n/app_localizations.dart';
 
 enum UpdateChoice { now, later, skip }
 
-/// 새 버전 알림: [나중에] [이 버전 건너뛰기] [지금 업데이트].
+/// 새 버전 알림: ([릴리스 노트 보기]) … [이 버전 건너뛰기] [나중에] [지금 업데이트].
+///
+/// 릴리스 노트는 마크다운 원문(설치 안내까지) 대신 [ReleaseNotesSummary] 로 뽑은
+/// 변경 항목만 보인다. 전문은 [onOpenReleaseNotes] 로 브라우저에서 본다 (창은 닫히지 않음).
 class UpdateAvailableDialog extends StatelessWidget {
-  const UpdateAvailableDialog({super.key, required this.info});
+  const UpdateAvailableDialog({super.key, required this.info, this.onOpenReleaseNotes});
 
   final UpdateInfo info;
+
+  /// null 이면 [릴리스 노트 보기] 단추가 없다.
+  final VoidCallback? onOpenReleaseNotes;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
-    final notes = info.notes.trim();
+    final notes = ReleaseNotesSummary.from(info.notes);
     return AlertDialog(
       title: Text(l10n.updateAvailableTitle),
       content: ConstrainedBox(
@@ -36,22 +42,37 @@ class UpdateAvailableDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(l10n.updateAvailableBody(AppIdentity.displayName, info.currentVersion, info.latestVersion)),
-              if (notes.isNotEmpty) ...[
+              if (!notes.isEmpty) ...[
                 const SizedBox(height: 16),
                 Text(l10n.updateReleaseNotes, style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 160),
-                  child: SingleChildScrollView(
-                    child: SelectableText(notes, style: theme.textTheme.bodySmall),
+                for (final item in notes.items)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('•  ', style: theme.textTheme.bodyMedium),
+                        Expanded(child: Text(item, style: theme.textTheme.bodyMedium)),
+                      ],
+                    ),
                   ),
-                ),
+                if (notes.more > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2, left: 14),
+                    child: Text(
+                      l10n.updateMoreChanges(notes.more),
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  ),
               ],
             ],
           ),
         ),
       ),
       actions: [
+        if (onOpenReleaseNotes != null)
+          TextButton(onPressed: onOpenReleaseNotes, child: Text(l10n.updateViewReleaseNotes)),
         TextButton(
           onPressed: () => Navigator.of(context).pop(UpdateChoice.skip),
           child: Text(l10n.updateSkipVersion),
